@@ -461,7 +461,53 @@ function WeeklyPlanner({ meals, plan, setPlan, checked, setChecked }) {
   );
 }
 
+function Splash({ onEnter }) {
+  const decorations = [
+    { tag: "breakfast", rotate: "-10deg", pos: "top-6 left-4 sm:left-10" },
+    { tag: "dinner", rotate: "8deg", pos: "top-10 right-4 sm:right-12" },
+    { tag: "quick", rotate: "-6deg", pos: "bottom-16 left-6 sm:left-16" },
+    { tag: "snack", rotate: "7deg", pos: "bottom-10 right-8 sm:right-20" },
+  ];
+  return (
+    <div className="w-full min-h-[700px] bg-[#FDF0DC] flex items-center justify-center p-6 relative overflow-hidden">
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&display=swap');
+        @keyframes floatY { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+      `}</style>
+
+      {decorations.map((d) => (
+        <div key={d.tag} className={`absolute ${d.pos} hidden sm:block`} style={{ animation: "floatY 3.5s ease-in-out infinite" }}>
+          <Stamp tag={d.tag} rotate={d.rotate} />
+        </div>
+      ))}
+
+      <div className="text-center max-w-md relative z-10">
+        <div
+          className="w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6"
+          style={{ backgroundColor: "#FFD23F", border: `3px solid ${INK}`, transform: "rotate(-6deg)", ...pop(5) }}
+        >
+          <ChefHat size={44} color={INK} />
+        </div>
+        <h1 className="text-5xl sm:text-6xl font-extrabold leading-none" style={{ ...display, color: INK }}>
+          Meal Index
+        </h1>
+        <p className="text-sm uppercase tracking-[0.25em] font-bold text-stone-400 mt-4">
+          your personal kitchen system
+        </p>
+        <button
+          onClick={onEnter}
+          className="mt-8 text-base uppercase tracking-widest font-bold text-white px-8 py-4 rounded-full transition-transform hover:scale-105"
+          style={{ backgroundColor: "#FF5A5F", border: `3px solid ${INK}`, ...pop(5), ...display }}
+        >
+          Enter your kitchen
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function MealSelector() {
+  const [entered, setEntered] = useState(false);
   const [meals, setMeals] = useState(() => loadLocal(MEALS_KEY, []));
   const [plan, setPlan] = useState(() => loadLocal(PLAN_KEY, {}));
   const [checked, setChecked] = useState(() => loadLocal(CHECKED_KEY, {}));
@@ -519,6 +565,10 @@ export default function MealSelector() {
     .sort((a, b) => b.score - a.score);
 
   const TABS = ["index", "plan", "surprise", "pantry"];
+
+  if (!entered) {
+    return <Splash onEnter={() => setEntered(true)} />;
+  }
 
   return (
     <div className="w-full min-h-[700px] bg-[#FDF0DC] flex justify-center p-4 sm:p-6">
