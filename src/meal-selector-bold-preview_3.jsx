@@ -12,6 +12,7 @@ import {
   Check,
   RotateCcw,
   ChefHat,
+  Image as ImageIcon,
 } from "lucide-react";
 
 const TAG_OPTIONS = ["breakfast", "lunch", "dinner", "snack", "high-protein", "quick", "batch"];
@@ -20,24 +21,7 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const MEALS_KEY = "meal-index:meals";
 const PLAN_KEY = "meal-index:weeklyPlan";
 const CHECKED_KEY = "meal-index:groceryChecked";
-
-// --- Local storage helpers (swap-in replacement for Claude's window.storage) ---
-function loadLocal(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch (err) {
-    console.error("Failed to load", key, err);
-    return fallback;
-  }
-}
-function saveLocal(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (err) {
-    console.error("Failed to save", key, err);
-  }
-}
+const LOG_KEY = "meal-index:cookLog";
 
 const INK = "#171717";
 
@@ -54,11 +38,21 @@ const TAG_COLORS = {
 };
 
 const SECTION = {
+  home: { name: "Home", color: "#3A86FF", ink: "#FFFFFF" },
   index: { name: "My Meals", color: "#FF5A5F", ink: "#FFFFFF" },
   plan: { name: "Weekly Plan", color: "#06A77D", ink: "#FFFFFF" },
   surprise: { name: "Surprise Me", color: "#FFD23F", ink: INK },
   pantry: { name: "What Can I Make", color: "#8338EC", ink: "#FFFFFF" },
 };
+
+const FULL_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
 
 const STAMP_ROTATIONS = ["-8deg", "6deg", "-4deg", "9deg", "-6deg"];
 
@@ -71,6 +65,34 @@ function normalize(s) {
 function todayIndex() {
   const d = new Date().getDay();
   return d === 0 ? 6 : d - 1;
+}
+function todayDateStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+function formatShortDate(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+function resizeImage(file, maxWidth = 480) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, maxWidth / img.width);
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width * scale;
+        canvas.height = img.height * scale;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.75));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 function tagColor(tag) {
   return TAG_COLORS[tag] || { bg: INK, ink: "#FFFFFF" };
@@ -113,48 +135,78 @@ function TagPill({ tag }) {
   );
 }
 
-function MealCard({ meal, onDelete, rotate }) {
+function MealCard({ meal, onDelete, rotate, stats, onLogCook }) {
   const primary = meal.tags[0];
   return (
     <div
-      className="relative bg-white rounded-2xl p-4 pr-5"
+      className="relative bg-white rounded-2xl overflow-hidden"
       style={{ border: `2.5px solid ${INK}`, ...pop(4) }}
     >
       {primary && (
-        <div className="absolute -top-4 -right-3">
+        <div className="absolute -top-4 -right-3 z-10">
           <Stamp tag={primary} rotate={STAMP_ROTATIONS[rotate % STAMP_ROTATIONS.length]} size="sm" />
         </div>
       )}
-      <button
-        onClick={() => onDelete(meal.id)}
-        className="absolute bottom-3 right-3 text-stone-300 hover:text-red-500 transition-colors"
-        aria-label={`Delete ${meal.name}`}
-      >
-        <Trash2 size={15} />
-      </button>
-      <h3 className="text-xl font-bold pr-10" style={{ ...display, color: INK }}>
-        {meal.name}
-      </h3>
-      {meal.ingredients.length > 0 && (
-        <p className="text-sm text-stone-500 mt-1 leading-snug">{meal.ingredients.join(", ")}</p>
+      {meal.photo && (
+        <div className="w-full h-32" style={{ borderBottom: `2.5px solid ${INK}` }}>
+          <img src={meal.photo} alt={meal.name} className="w-full h-full object-cover" />
+        </div>
       )}
-      <div className="flex flex-wrap items-center gap-1.5 mt-3">
-        {meal.tags.slice(1).map((t) => (
-          <TagPill key={t} tag={t} />
-        ))}
-        {(meal.calories || meal.protein) && (
-          <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide font-bold text-stone-400 ml-0.5">
-            {meal.calories ? (
-              <span className="inline-flex items-center gap-0.5">
-                <Flame size={10} /> {meal.calories}
-              </span>
-            ) : null}
-            {meal.protein ? (
-              <span className="inline-flex items-center gap-0.5">
-                <Beef size={10} /> {meal.protein}g
-              </span>
-            ) : null}
-          </span>
+      <div className="p-4 pr-5">
+        {onDelete && (
+          <button
+            onClick={() => onDelete(meal.id)}
+            className="absolute bottom-3 right-3 text-stone-300 hover:text-red-500 transition-colors"
+            aria-label={`Delete ${meal.name}`}
+          >
+            <Trash2 size={15} />
+          </button>
+        )}
+        <h3 className="text-xl font-bold pr-10" style={{ ...display, color: INK }}>
+          {meal.name}
+        </h3>
+        {meal.ingredients.length > 0 && (
+          <p className="text-sm text-stone-500 mt-1 leading-snug">{meal.ingredients.join(", ")}</p>
+        )}
+        <div className="flex flex-wrap items-center gap-1.5 mt-3">
+          {meal.tags.slice(1).map((t) => (
+            <TagPill key={t} tag={t} />
+          ))}
+          {(meal.calories || meal.protein) && (
+            <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide font-bold text-stone-400 ml-0.5">
+              {meal.calories ? (
+                <span className="inline-flex items-center gap-0.5">
+                  <Flame size={10} /> {meal.calories}
+                </span>
+              ) : null}
+              {meal.protein ? (
+                <span className="inline-flex items-center gap-0.5">
+                  <Beef size={10} /> {meal.protein}g
+                </span>
+              ) : null}
+            </span>
+          )}
+        </div>
+        {stats && (
+          <div
+            className="flex items-center justify-between mt-3 pt-3"
+            style={{ borderTop: "1.5px dashed #e7e5e4" }}
+          >
+            <p className="text-[10px] uppercase tracking-wide font-bold text-stone-400">
+              {stats.timesCooked > 0
+                ? `Made ${stats.timesCooked}x · last ${formatShortDate(stats.lastCooked)}`
+                : "Never made yet"}
+            </p>
+            {onLogCook && (
+              <button
+                onClick={() => onLogCook(meal.id)}
+                className="flex items-center gap-1 text-[10px] uppercase tracking-wide font-bold px-2.5 py-1 rounded-full"
+                style={{ backgroundColor: "#06A77D", color: "#fff", border: `1.5px solid ${INK}` }}
+              >
+                <Check size={10} /> Made this
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -167,9 +219,25 @@ function AddMealForm({ onAdd, onClose }) {
   const [tags, setTags] = useState([]);
   const [calories, setCalories] = useState("");
   const [protein, setProtein] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const [photoLoading, setPhotoLoading] = useState(false);
 
   const toggleTag = (t) =>
     setTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
+
+  const handlePhoto = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoLoading(true);
+    try {
+      const dataUrl = await resizeImage(file);
+      setPhoto(dataUrl);
+    } catch (err) {
+      console.error("Photo processing failed:", err);
+    } finally {
+      setPhotoLoading(false);
+    }
+  };
 
   const submit = (e) => {
     e.preventDefault();
@@ -181,12 +249,14 @@ function AddMealForm({ onAdd, onClose }) {
       tags,
       calories: calories ? Number(calories) : null,
       protein: protein ? Number(protein) : null,
+      photo,
     });
     setName("");
     setIngredientsText("");
     setTags([]);
     setCalories("");
     setProtein("");
+    setPhoto(null);
     onClose();
   };
 
@@ -256,6 +326,44 @@ function AddMealForm({ onAdd, onClose }) {
         </div>
         <div>
           <label className="text-[10px] uppercase tracking-widest text-stone-400 font-bold flex items-center gap-1">
+            <ImageIcon size={10} /> Photo (optional)
+          </label>
+          <div className="flex items-center gap-3 mt-1.5">
+            {photo ? (
+              <img
+                src={photo}
+                alt="Preview"
+                className="w-14 h-14 rounded-lg object-cover"
+                style={{ border: `2px solid ${INK}` }}
+              />
+            ) : (
+              <div
+                className="w-14 h-14 rounded-lg flex items-center justify-center text-stone-300"
+                style={{ border: `2px dashed #d6d3d1` }}
+              >
+                <ImageIcon size={18} />
+              </div>
+            )}
+            <label
+              className="text-[10px] uppercase tracking-wide font-bold px-3 py-2 rounded-full cursor-pointer"
+              style={{ backgroundColor: "#fff", color: INK, border: `2px solid ${INK}` }}
+            >
+              {photoLoading ? "Processing…" : photo ? "Change photo" : "Upload photo"}
+              <input type="file" accept="image/*" onChange={handlePhoto} className="hidden" />
+            </label>
+            {photo && (
+              <button
+                type="button"
+                onClick={() => setPhoto(null)}
+                className="text-stone-300 hover:text-red-500"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+        <div>
+          <label className="text-[10px] uppercase tracking-widest text-stone-400 font-bold flex items-center gap-1">
             <Tags size={10} /> Tags
           </label>
           <div className="flex flex-wrap gap-1.5 mt-1.5">
@@ -290,6 +398,190 @@ function AddMealForm({ onAdd, onClose }) {
         </button>
       </div>
     </form>
+  );
+}
+
+function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
+  const tIdx = todayIndex();
+  const accent = SECTION.home.color;
+
+  const mealById = useMemo(() => {
+    const m = {};
+    meals.forEach((meal) => (m[meal.id] = meal));
+    return m;
+  }, [meals]);
+
+  const todayMeals = (plan[tIdx] || []).map((id) => mealById[id]).filter(Boolean);
+  const plannedCount = Object.values(plan).reduce((acc, ids) => acc + (ids?.length || 0), 0);
+  const todayLabel = FULL_DAYS[tIdx];
+  const dateLabel = new Date().toLocaleDateString(undefined, { month: "long", day: "numeric" });
+
+  const staples = useMemo(() => {
+    const counts = {};
+    meals.forEach((m) =>
+      m.ingredients.forEach((ing) => {
+        const key = normalize(ing);
+        if (!key) return;
+        counts[key] = (counts[key] || 0) + 1;
+      })
+    );
+    return Object.entries(counts)
+      .filter(([, count]) => count > 1)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+  }, [meals]);
+
+  return (
+    <div>
+      {/* Greeting */}
+      <div className="mb-6">
+        <p className="text-sm uppercase tracking-widest font-bold" style={{ color: accent }}>
+          {greeting()}
+        </p>
+        <h2 className="text-3xl font-extrabold" style={{ ...display, color: INK }}>
+          {todayLabel}, {dateLabel}
+        </h2>
+      </div>
+
+      {/* Today's spotlight */}
+      <div className="mb-8">
+        <p className="text-xs uppercase tracking-widest font-bold text-stone-400 mb-2">
+          On the menu today
+        </p>
+        {todayMeals.length === 0 ? (
+          <div
+            className="bg-white rounded-2xl p-6 text-center"
+            style={{ border: `2.5px dashed #d6d3d1` }}
+          >
+            <p className="text-stone-400 text-sm mb-3">Nothing planned for today yet.</p>
+            <div className="flex gap-2 justify-center flex-wrap">
+              <button
+                onClick={() => setTab("surprise")}
+                className="text-xs uppercase tracking-widest font-bold px-4 py-2 rounded-full"
+                style={{
+                  backgroundColor: SECTION.surprise.color,
+                  color: SECTION.surprise.ink,
+                  border: `2px solid ${INK}`,
+                  ...pop(3),
+                }}
+              >
+                Surprise me
+              </button>
+              <button
+                onClick={() => setTab("plan")}
+                className="text-xs uppercase tracking-widest font-bold px-4 py-2 rounded-full"
+                style={{ backgroundColor: "#fff", color: INK, border: `2px solid ${INK}`, ...pop(3) }}
+              >
+                Plan my week
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {todayMeals.map((meal, i) => (
+              <MealCard
+                key={meal.id}
+                meal={meal}
+                onDelete={null}
+                rotate={i}
+                stats={mealStats[meal.id]}
+                onLogCook={onLogCook}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Week strip */}
+      <div className="mb-8">
+        <p className="text-xs uppercase tracking-widest font-bold text-stone-400 mb-2">
+          This week
+        </p>
+        <button onClick={() => setTab("plan")} className="w-full flex gap-2 justify-between">
+          {DAYS.map((day, idx) => {
+            const count = (plan[idx] || []).length;
+            const first = count > 0 ? mealById[plan[idx][0]] : null;
+            const dotColor = first ? tagColor(first.tags[0]).bg : "#e7e5e4";
+            const isToday = idx === tIdx;
+            return (
+              <div
+                key={day}
+                className="flex-1 flex flex-col items-center gap-1.5 py-2.5 rounded-xl"
+                style={{
+                  border: `2px solid ${isToday ? accent : "#e7e5e4"}`,
+                  backgroundColor: isToday ? `${accent}14` : "#fff",
+                }}
+              >
+                <span
+                  className="text-[10px] uppercase tracking-wide font-bold"
+                  style={{ color: isToday ? accent : "#a8a29e" }}
+                >
+                  {day}
+                </span>
+                <span
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{ backgroundColor: dotColor, border: count > 0 ? `1.5px solid ${INK}` : "none" }}
+                />
+              </div>
+            );
+          })}
+        </button>
+      </div>
+
+      {/* Quick stats */}
+      <div className="flex gap-4 flex-wrap">
+        <div
+          className="bg-white rounded-xl px-4 py-3 flex-1 min-w-[140px]"
+          style={{ border: `2px solid ${INK}`, ...pop(3) }}
+        >
+          <p className="text-2xl font-extrabold" style={{ ...display, color: INK }}>
+            {meals.length}
+          </p>
+          <p className="text-[10px] uppercase tracking-widest font-bold text-stone-400">
+            meals filed
+          </p>
+        </div>
+        <div
+          className="bg-white rounded-xl px-4 py-3 flex-1 min-w-[140px]"
+          style={{ border: `2px solid ${INK}`, ...pop(3) }}
+        >
+          <p className="text-2xl font-extrabold" style={{ ...display, color: INK }}>
+            {plannedCount}
+          </p>
+          <p className="text-[10px] uppercase tracking-widest font-bold text-stone-400">
+            planned this week
+          </p>
+        </div>
+      </div>
+
+      {staples.length > 0 && (
+        <div className="mt-8">
+          <p className="text-xs uppercase tracking-widest font-bold text-stone-400 mb-2">
+            Your staples
+          </p>
+          <p className="text-xs text-stone-400 mb-3">
+            Ingredients that show up again and again — worth always having stocked.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {staples.map(([name, count]) => (
+              <span
+                key={name}
+                className="inline-flex items-center gap-1.5 text-xs font-bold capitalize px-3 py-1.5 rounded-full"
+                style={{ backgroundColor: "#fff", color: INK, border: `2px solid ${INK}` }}
+              >
+                {name}
+                <span
+                  className="text-[10px] rounded-full px-1.5"
+                  style={{ backgroundColor: accent, color: "#fff" }}
+                >
+                  {count}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -508,10 +800,12 @@ function Splash({ onEnter }) {
 
 export default function MealSelector() {
   const [entered, setEntered] = useState(false);
-  const [meals, setMeals] = useState(() => loadLocal(MEALS_KEY, []));
-  const [plan, setPlan] = useState(() => loadLocal(PLAN_KEY, {}));
-  const [checked, setChecked] = useState(() => loadLocal(CHECKED_KEY, {}));
-  const [tab, setTab] = useState("index");
+  const [meals, setMeals] = useState([]);
+  const [plan, setPlan] = useState({});
+  const [checked, setChecked] = useState({});
+  const [cookLog, setCookLog] = useState([]);
+  const [loaded, setLoaded] = useState(false);
+  const [tab, setTab] = useState("home");
   const [showAdd, setShowAdd] = useState(false);
 
   const [surpriseTag, setSurpriseTag] = useState("any");
@@ -520,9 +814,53 @@ export default function MealSelector() {
 
   const [pantryText, setPantryText] = useState("");
 
-  useEffect(() => saveLocal(MEALS_KEY, meals), [meals]);
-  useEffect(() => saveLocal(PLAN_KEY, plan), [plan]);
-  useEffect(() => saveLocal(CHECKED_KEY, checked), [checked]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const m = await window.storage.get(MEALS_KEY, false);
+        if (m?.value) setMeals(JSON.parse(m.value));
+      } catch (e) {}
+      try {
+        const p = await window.storage.get(PLAN_KEY, false);
+        if (p?.value) setPlan(JSON.parse(p.value));
+      } catch (e) {}
+      try {
+        const c = await window.storage.get(CHECKED_KEY, false);
+        if (c?.value) setChecked(JSON.parse(c.value));
+      } catch (e) {}
+      try {
+        const l = await window.storage.get(LOG_KEY, false);
+        if (l?.value) setCookLog(JSON.parse(l.value));
+      } catch (e) {}
+      setLoaded(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (loaded) window.storage.set(MEALS_KEY, JSON.stringify(meals), false).catch(() => {});
+  }, [meals, loaded]);
+  useEffect(() => {
+    if (loaded) window.storage.set(PLAN_KEY, JSON.stringify(plan), false).catch(() => {});
+  }, [plan, loaded]);
+  useEffect(() => {
+    if (loaded) window.storage.set(CHECKED_KEY, JSON.stringify(checked), false).catch(() => {});
+  }, [checked, loaded]);
+  useEffect(() => {
+    if (loaded) window.storage.set(LOG_KEY, JSON.stringify(cookLog), false).catch(() => {});
+  }, [cookLog, loaded]);
+
+  const logCook = (mealId) =>
+    setCookLog((prev) => [...prev, { id: uid(), mealId, date: todayDateStr() }]);
+
+  const mealStats = useMemo(() => {
+    const stats = {};
+    cookLog.forEach((entry) => {
+      if (!stats[entry.mealId]) stats[entry.mealId] = { timesCooked: 0, lastCooked: entry.date };
+      stats[entry.mealId].timesCooked += 1;
+      if (entry.date > stats[entry.mealId].lastCooked) stats[entry.mealId].lastCooked = entry.date;
+    });
+    return stats;
+  }, [cookLog]);
 
   const addMeal = (meal) => setMeals((prev) => [...prev, meal]);
   const deleteMeal = (id) => {
@@ -564,7 +902,7 @@ export default function MealSelector() {
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  const TABS = ["index", "plan", "surprise", "pantry"];
+  const TABS = ["home", "index", "plan", "surprise", "pantry"];
 
   if (!entered) {
     return <Splash onEnter={() => setEntered(true)} />;
@@ -617,7 +955,19 @@ export default function MealSelector() {
           })}
         </div>
 
-        {tab === "index" && (
+        {!loaded && <p className="text-sm text-stone-400 text-center py-16">Loading your index…</p>}
+
+        {loaded && tab === "home" && (
+          <HomeScreen
+            meals={meals}
+            plan={plan}
+            setTab={setTab}
+            mealStats={mealStats}
+            onLogCook={logCook}
+          />
+        )}
+
+        {loaded && tab === "index" && (
           <div>
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm text-stone-500">
@@ -642,17 +992,24 @@ export default function MealSelector() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-2">
               {meals.map((m, i) => (
-                <MealCard key={m.id} meal={m} onDelete={deleteMeal} rotate={i} />
+                <MealCard
+                  key={m.id}
+                  meal={m}
+                  onDelete={deleteMeal}
+                  rotate={i}
+                  stats={mealStats[m.id]}
+                  onLogCook={logCook}
+                />
               ))}
             </div>
           </div>
         )}
 
-        {tab === "plan" && (
+        {loaded && tab === "plan" && (
           <WeeklyPlanner meals={meals} plan={plan} setPlan={setPlan} checked={checked} setChecked={setChecked} />
         )}
 
-        {tab === "surprise" && (
+        {loaded && tab === "surprise" && (
           <div className="flex flex-col items-center">
             <div className="w-full flex flex-wrap gap-1.5 mb-6 justify-center">
               {["any", ...TAG_OPTIONS].map((t) => {
@@ -730,7 +1087,7 @@ export default function MealSelector() {
           </div>
         )}
 
-        {tab === "pantry" && (
+        {loaded && tab === "pantry" && (
           <div>
             <label className="text-[11px] uppercase tracking-widest font-bold text-stone-400 flex items-center gap-1 mb-1.5">
               <Search size={11} /> What's in the kitchen?
