@@ -5,14 +5,13 @@ import {
   X,
   Trash2,
   Search,
-  ChefHat,
   Tags,
   Flame,
   Beef,
-  CalendarDays,
   ShoppingBasket,
   Check,
   RotateCcw,
+  ChefHat,
 } from "lucide-react";
 
 const TAG_OPTIONS = ["breakfast", "lunch", "dinner", "snack", "high-protein", "quick", "batch"];
@@ -40,6 +39,29 @@ function saveLocal(key, value) {
   }
 }
 
+const INK = "#171717";
+
+// Loud, saturated, one distinct color per category — this is where the
+// app's personality lives.
+const TAG_COLORS = {
+  breakfast: { bg: "#FFD23F", ink: INK },
+  lunch: { bg: "#FF5A5F", ink: "#FFFFFF" },
+  dinner: { bg: "#8338EC", ink: "#FFFFFF" },
+  snack: { bg: "#06A77D", ink: "#FFFFFF" },
+  "high-protein": { bg: "#FB8B24", ink: INK },
+  quick: { bg: "#3A86FF", ink: "#FFFFFF" },
+  batch: { bg: "#FF206E", ink: "#FFFFFF" },
+};
+
+const SECTION = {
+  index: { name: "My Meals", color: "#FF5A5F", ink: "#FFFFFF" },
+  plan: { name: "Weekly Plan", color: "#06A77D", ink: "#FFFFFF" },
+  surprise: { name: "Surprise Me", color: "#FFD23F", ink: INK },
+  pantry: { name: "What Can I Make", color: "#8338EC", ink: "#FFFFFF" },
+};
+
+const STAMP_ROTATIONS = ["-8deg", "6deg", "-4deg", "9deg", "-6deg"];
+
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -50,70 +72,89 @@ function todayIndex() {
   const d = new Date().getDay();
   return d === 0 ? 6 : d - 1;
 }
+function tagColor(tag) {
+  return TAG_COLORS[tag] || { bg: INK, ink: "#FFFFFF" };
+}
 
-function PunchHole({ className = "" }) {
+const display = { fontFamily: "'Baloo 2', system-ui, sans-serif" };
+
+function pop(offset = 4) {
+  return { boxShadow: `${offset}px ${offset}px 0 ${INK}` };
+}
+
+function Stamp({ tag, rotate = "-6deg", size = "md" }) {
+  const c = tagColor(tag);
+  const dims = size === "sm" ? "w-14 h-14 text-[9px]" : "w-16 h-16 text-[10px]";
   return (
     <div
-      className={`w-3 h-3 rounded-full bg-stone-100 border border-stone-300 ${className}`}
-      style={{ boxShadow: "inset 0 1px 2px rgba(0,0,0,0.15)" }}
-    />
+      className={`${dims} rounded-full flex items-center justify-center text-center font-bold uppercase leading-tight px-1 shrink-0`}
+      style={{
+        backgroundColor: c.bg,
+        color: c.ink,
+        border: `2.5px solid ${INK}`,
+        transform: `rotate(${rotate})`,
+        ...display,
+      }}
+    >
+      {tag}
+    </div>
   );
 }
 
-function TagChip({ children, tone = "emerald" }) {
-  const tones = { emerald: "bg-emerald-800", amber: "bg-amber-700" };
+function TagPill({ tag }) {
+  const c = tagColor(tag);
   return (
     <span
-      className={`font-mono text-[10px] uppercase tracking-wide px-1.5 py-0.5 text-stone-50 rounded-sm ${tones[tone]}`}
+      className="inline-block text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded-full"
+      style={{ backgroundColor: c.bg, color: c.ink, border: `1.5px solid ${INK}` }}
     >
-      {children}
+      {tag}
     </span>
   );
 }
 
-function IndexCard({ meal, onDelete, rotate }) {
+function MealCard({ meal, onDelete, rotate }) {
+  const primary = meal.tags[0];
   return (
     <div
-      className={`relative bg-stone-50 border border-stone-300 rounded-sm p-4 pt-6 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 ${rotate}`}
+      className="relative bg-white rounded-2xl p-4 pr-5"
+      style={{ border: `2.5px solid ${INK}`, ...pop(4) }}
     >
-      <PunchHole className="absolute top-2 left-2" />
-      <PunchHole className="absolute top-2 right-2" />
+      {primary && (
+        <div className="absolute -top-4 -right-3">
+          <Stamp tag={primary} rotate={STAMP_ROTATIONS[rotate % STAMP_ROTATIONS.length]} size="sm" />
+        </div>
+      )}
       <button
         onClick={() => onDelete(meal.id)}
-        className="absolute bottom-2 right-2 text-stone-400 hover:text-red-700 transition-colors"
+        className="absolute bottom-3 right-3 text-stone-300 hover:text-red-500 transition-colors"
         aria-label={`Delete ${meal.name}`}
       >
-        <Trash2 size={14} />
+        <Trash2 size={15} />
       </button>
-      <h3 className="font-mono font-bold text-stone-800 text-base tracking-tight pr-4">
+      <h3 className="text-xl font-bold pr-10" style={{ ...display, color: INK }}>
         {meal.name}
       </h3>
       {meal.ingredients.length > 0 && (
-        <p className="font-mono text-xs text-stone-500 mt-1 leading-relaxed">
-          {meal.ingredients.join(", ")}
-        </p>
+        <p className="text-sm text-stone-500 mt-1 leading-snug">{meal.ingredients.join(", ")}</p>
       )}
-      <div className="flex flex-wrap items-center gap-1.5 mt-2">
-        {meal.tags.map((t) => (
-          <TagChip key={t}>{t}</TagChip>
+      <div className="flex flex-wrap items-center gap-1.5 mt-3">
+        {meal.tags.slice(1).map((t) => (
+          <TagPill key={t} tag={t} />
         ))}
         {(meal.calories || meal.protein) && (
-          <TagChip tone="amber">
-            <span className="inline-flex items-center gap-1">
-              {meal.calories ? (
-                <>
-                  <Flame size={9} />
-                  {meal.calories}
-                </>
-              ) : null}
-              {meal.protein ? (
-                <>
-                  <Beef size={9} className="ml-1" />
-                  {meal.protein}g
-                </>
-              ) : null}
-            </span>
-          </TagChip>
+          <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide font-bold text-stone-400 ml-0.5">
+            {meal.calories ? (
+              <span className="inline-flex items-center gap-0.5">
+                <Flame size={10} /> {meal.calories}
+              </span>
+            ) : null}
+            {meal.protein ? (
+              <span className="inline-flex items-center gap-0.5">
+                <Beef size={10} /> {meal.protein}g
+              </span>
+            ) : null}
+          </span>
         )}
       </div>
     </div>
@@ -127,21 +168,16 @@ function AddMealForm({ onAdd, onClose }) {
   const [calories, setCalories] = useState("");
   const [protein, setProtein] = useState("");
 
-  const toggleTag = (t) => {
+  const toggleTag = (t) =>
     setTags((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
-  };
 
   const submit = (e) => {
     e.preventDefault();
     if (!name.trim()) return;
-    const ingredients = ingredientsText
-      .split(",")
-      .map((i) => i.trim())
-      .filter(Boolean);
     onAdd({
       id: uid(),
       name: name.trim(),
-      ingredients,
+      ingredients: ingredientsText.split(",").map((i) => i.trim()).filter(Boolean),
       tags,
       calories: calories ? Number(calories) : null,
       protein: protein ? Number(protein) : null,
@@ -157,20 +193,21 @@ function AddMealForm({ onAdd, onClose }) {
   return (
     <form
       onSubmit={submit}
-      className="bg-stone-50 border border-stone-300 rounded-sm p-4 mb-4 relative animate-[fadeIn_0.15s_ease-out]"
+      className="bg-white rounded-2xl p-5 mb-5 relative"
+      style={{ border: `2.5px solid ${INK}`, ...pop(5) }}
     >
-      <PunchHole className="absolute top-2 left-2" />
-      <PunchHole className="absolute top-2 right-2" />
       <button
         type="button"
         onClick={onClose}
-        className="absolute top-2 right-8 text-stone-400 hover:text-stone-700"
+        className="absolute top-4 right-4 w-7 h-7 rounded-full flex items-center justify-center text-stone-500 hover:text-white hover:bg-[#171717] transition-colors"
+        style={{ border: `2px solid ${INK}` }}
       >
-        <X size={16} />
+        <X size={14} />
       </button>
-      <div className="pt-3 space-y-3">
+      <p className="text-sm uppercase tracking-widest font-bold text-[#FF5A5F] mb-3">New meal</p>
+      <div className="space-y-3">
         <div>
-          <label className="font-mono text-[10px] uppercase tracking-widest text-stone-500">
+          <label className="text-[10px] uppercase tracking-widest text-stone-400 font-bold">
             Meal name
           </label>
           <input
@@ -178,70 +215,78 @@ function AddMealForm({ onAdd, onClose }) {
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Turkey chili"
-            className="w-full mt-1 bg-transparent border-b border-stone-400 font-mono text-sm text-stone-800 py-1 focus:outline-none focus:border-emerald-800"
+            className="w-full mt-1 bg-transparent border-b-[3px] border-stone-200 text-lg py-1 focus:outline-none focus:border-[#FF5A5F]"
+            style={display}
           />
         </div>
         <div>
-          <label className="font-mono text-[10px] uppercase tracking-widest text-stone-500">
+          <label className="text-[10px] uppercase tracking-widest text-stone-400 font-bold">
             Ingredients (comma separated)
           </label>
           <input
             value={ingredientsText}
             onChange={(e) => setIngredientsText(e.target.value)}
             placeholder="ground turkey, kidney beans, canned tomato, onion"
-            className="w-full mt-1 bg-transparent border-b border-stone-400 font-mono text-sm text-stone-800 py-1 focus:outline-none focus:border-emerald-800"
+            className="w-full mt-1 bg-transparent border-b border-stone-200 text-sm py-1 focus:outline-none focus:border-[#FF5A5F]"
           />
         </div>
         <div className="flex gap-4">
           <div className="flex-1">
-            <label className="font-mono text-[10px] uppercase tracking-widest text-stone-500">
-              Calories (optional)
+            <label className="text-[10px] uppercase tracking-widest text-stone-400 font-bold">
+              Calories
             </label>
             <input
               type="number"
               value={calories}
               onChange={(e) => setCalories(e.target.value)}
-              className="w-full mt-1 bg-transparent border-b border-stone-400 font-mono text-sm text-stone-800 py-1 focus:outline-none focus:border-emerald-800"
+              className="w-full mt-1 bg-transparent border-b border-stone-200 text-sm py-1 focus:outline-none focus:border-[#FF5A5F]"
             />
           </div>
           <div className="flex-1">
-            <label className="font-mono text-[10px] uppercase tracking-widest text-stone-500">
-              Protein g (optional)
+            <label className="text-[10px] uppercase tracking-widest text-stone-400 font-bold">
+              Protein g
             </label>
             <input
               type="number"
               value={protein}
               onChange={(e) => setProtein(e.target.value)}
-              className="w-full mt-1 bg-transparent border-b border-stone-400 font-mono text-sm text-stone-800 py-1 focus:outline-none focus:border-emerald-800"
+              className="w-full mt-1 bg-transparent border-b border-stone-200 text-sm py-1 focus:outline-none focus:border-[#FF5A5F]"
             />
           </div>
         </div>
         <div>
-          <label className="font-mono text-[10px] uppercase tracking-widest text-stone-500 flex items-center gap-1">
+          <label className="text-[10px] uppercase tracking-widest text-stone-400 font-bold flex items-center gap-1">
             <Tags size={10} /> Tags
           </label>
           <div className="flex flex-wrap gap-1.5 mt-1.5">
-            {TAG_OPTIONS.map((t) => (
-              <button
-                type="button"
-                key={t}
-                onClick={() => toggleTag(t)}
-                className={`font-mono text-[10px] uppercase tracking-wide px-2 py-1 rounded-sm border transition-colors ${
-                  tags.includes(t)
-                    ? "bg-emerald-800 text-stone-50 border-emerald-800"
-                    : "bg-transparent text-stone-600 border-stone-300 hover:border-emerald-800"
-                }`}
-              >
-                {t}
-              </button>
-            ))}
+            {TAG_OPTIONS.map((t) => {
+              const c = tagColor(t);
+              const active = tags.includes(t);
+              return (
+                <button
+                  type="button"
+                  key={t}
+                  onClick={() => toggleTag(t)}
+                  className="text-[10px] uppercase tracking-wide font-bold px-2.5 py-1 rounded-full transition-transform"
+                  style={{
+                    backgroundColor: active ? c.bg : "#fff",
+                    color: active ? c.ink : "#78716c",
+                    border: `2px solid ${INK}`,
+                    transform: active ? "scale(1.05)" : "scale(1)",
+                  }}
+                >
+                  {t}
+                </button>
+              );
+            })}
           </div>
         </div>
         <button
           type="submit"
-          className="font-mono text-xs uppercase tracking-widest bg-stone-800 text-stone-50 px-4 py-2 rounded-sm hover:bg-stone-900 transition-colors"
+          className="text-sm uppercase tracking-widest font-bold text-white px-6 py-2.5 rounded-full"
+          style={{ backgroundColor: "#FF5A5F", border: `2.5px solid ${INK}`, ...pop(3), ...display }}
         >
-          File card
+          Add to index
         </button>
       </div>
     </form>
@@ -250,24 +295,18 @@ function AddMealForm({ onAdd, onClose }) {
 
 function WeeklyPlanner({ meals, plan, setPlan, checked, setChecked }) {
   const tIdx = todayIndex();
+  const accent = SECTION.plan.color;
 
   const assignMeal = (dayIdx, mealId) => {
     if (!mealId) return;
     setPlan((prev) => {
-      const next = { ...prev };
-      const list = next[dayIdx] || [];
-      if (!list.includes(mealId)) next[dayIdx] = [...list, mealId];
-      return next;
+      const list = prev[dayIdx] || [];
+      if (list.includes(mealId)) return prev;
+      return { ...prev, [dayIdx]: [...list, mealId] };
     });
   };
-
-  const removeMeal = (dayIdx, mealId) => {
-    setPlan((prev) => ({
-      ...prev,
-      [dayIdx]: (prev[dayIdx] || []).filter((id) => id !== mealId),
-    }));
-  };
-
+  const removeMeal = (dayIdx, mealId) =>
+    setPlan((prev) => ({ ...prev, [dayIdx]: (prev[dayIdx] || []).filter((id) => id !== mealId) }));
   const clearWeek = () => {
     setPlan({});
     setChecked({});
@@ -281,7 +320,7 @@ function WeeklyPlanner({ meals, plan, setPlan, checked, setChecked }) {
 
   const groceryList = useMemo(() => {
     const counts = {};
-    Object.values(plan).forEach((ids) => {
+    Object.values(plan).forEach((ids) =>
       (ids || []).forEach((id) => {
         const meal = mealById[id];
         if (!meal) return;
@@ -290,8 +329,8 @@ function WeeklyPlanner({ meals, plan, setPlan, checked, setChecked }) {
           if (!key) return;
           counts[key] = (counts[key] || 0) + 1;
         });
-      });
-    });
+      })
+    );
     return Object.entries(counts)
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -301,21 +340,21 @@ function WeeklyPlanner({ meals, plan, setPlan, checked, setChecked }) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-xs text-stone-500">
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-stone-500">
           {plannedCount} meal{plannedCount === 1 ? "" : "s"} planned this week
         </p>
         <button
           onClick={clearWeek}
-          className="flex items-center gap-1 text-[11px] uppercase tracking-widest text-stone-500 hover:text-stone-800 transition-colors"
+          className="flex items-center gap-1 text-[11px] uppercase tracking-widest font-bold text-stone-400 hover:text-[#171717] transition-colors"
         >
           <RotateCcw size={12} /> Start new week
         </button>
       </div>
 
       {meals.length === 0 ? (
-        <p className="text-xs text-stone-400 text-center py-14">
-          File a few meals on the "My Meals" tab first, then come plan your week.
+        <p className="text-sm text-stone-400 text-center py-14">
+          File a few meals on "My Meals" first, then come plan your week.
         </p>
       ) : (
         <div className="space-y-2">
@@ -325,53 +364,48 @@ function WeeklyPlanner({ meals, plan, setPlan, checked, setChecked }) {
             return (
               <div
                 key={day}
-                className={`border rounded-sm p-2.5 transition-colors ${
-                  isToday ? "border-amber-700 bg-amber-50" : "border-stone-300 bg-stone-50"
-                }`}
+                className="flex items-center gap-3 flex-wrap p-2.5 rounded-xl"
+                style={{
+                  border: `2px solid ${isToday ? accent : "#e7e5e4"}`,
+                  backgroundColor: isToday ? `${accent}1A` : "#fff",
+                }}
               >
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                    className={`font-mono text-[11px] uppercase tracking-widest w-9 shrink-0 font-bold ${
-                      isToday ? "text-amber-700" : "text-stone-500"
-                    }`}
+                <span
+                  className="text-xs uppercase tracking-widest font-bold w-10 shrink-0"
+                  style={{ color: isToday ? accent : "#a8a29e", ...display }}
+                >
+                  {day}
+                </span>
+                <div className="flex flex-wrap gap-1.5 flex-1">
+                  {assigned.map((id) => {
+                    const meal = mealById[id];
+                    if (!meal) return null;
+                    const c = tagColor(meal.tags[0]);
+                    return (
+                      <span
+                        key={id}
+                        className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full"
+                        style={{ backgroundColor: c.bg, color: c.ink, border: `1.5px solid ${INK}` }}
+                      >
+                        {meal.name}
+                        <button onClick={() => removeMeal(idx, id)} className="hover:opacity-70">
+                          <X size={11} />
+                        </button>
+                      </span>
+                    );
+                  })}
+                  <select
+                    value=""
+                    onChange={(e) => assignMeal(idx, e.target.value)}
+                    className="text-xs font-bold bg-transparent border border-dashed border-stone-300 rounded-full px-2.5 py-1 text-stone-400 focus:outline-none cursor-pointer"
                   >
-                    {day}
-                  </span>
-
-                  <div className="flex flex-wrap gap-1.5 flex-1">
-                    {assigned.map((id) => {
-                      const meal = mealById[id];
-                      if (!meal) return null;
-                      return (
-                        <span
-                          key={id}
-                          className="inline-flex items-center gap-1 text-[11px] font-mono bg-stone-800 text-stone-50 px-2 py-1 rounded-sm"
-                        >
-                          {meal.name}
-                          <button
-                            onClick={() => removeMeal(idx, id)}
-                            className="hover:text-red-300 transition-colors"
-                            aria-label={`Remove ${meal.name} from ${day}`}
-                          >
-                            <X size={11} />
-                          </button>
-                        </span>
-                      );
-                    })}
-
-                    <select
-                      value=""
-                      onChange={(e) => assignMeal(idx, e.target.value)}
-                      className="text-[11px] font-mono bg-transparent border border-dashed border-stone-400 rounded-sm px-2 py-1 text-stone-500 focus:outline-none focus:border-emerald-800 cursor-pointer"
-                    >
-                      <option value="">+ add meal</option>
-                      {meals.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                    <option value="">+ add meal</option>
+                    {meals.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             );
@@ -380,33 +414,37 @@ function WeeklyPlanner({ meals, plan, setPlan, checked, setChecked }) {
       )}
 
       {groceryList.length > 0 && (
-        <div className="mt-6 border-t border-dashed border-stone-300 pt-4">
-          <h3 className="flex items-center gap-1.5 font-mono text-xs uppercase tracking-widest text-stone-600 font-bold mb-2">
-            <ShoppingBasket size={14} /> Grocery list
+        <div
+          className="mt-7 pt-5 rounded-t-xl"
+          style={{ borderTop: `3px dashed ${INK}` }}
+        >
+          <h3
+            className="flex items-center gap-1.5 text-base uppercase tracking-widest font-bold mb-3"
+            style={{ color: INK, ...display }}
+          >
+            <ShoppingBasket size={17} /> Grocery list
           </h3>
-          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+          <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
             {groceryList.map((item) => {
               const isChecked = !!checked[item.name];
               return (
                 <li key={item.name}>
                   <button
-                    onClick={() =>
-                      setChecked((prev) => ({ ...prev, [item.name]: !prev[item.name] }))
-                    }
-                    className="w-full flex items-center gap-2 py-1 text-left group"
+                    onClick={() => setChecked((prev) => ({ ...prev, [item.name]: !prev[item.name] }))}
+                    className="w-full flex items-center gap-2 py-1.5 text-left group"
                   >
                     <span
-                      className={`w-4 h-4 shrink-0 border rounded-sm flex items-center justify-center transition-colors ${
-                        isChecked
-                          ? "bg-emerald-800 border-emerald-800"
-                          : "border-stone-400 group-hover:border-emerald-800"
-                      }`}
+                      className="w-5 h-5 shrink-0 rounded-md flex items-center justify-center transition-colors"
+                      style={{
+                        border: `2px solid ${INK}`,
+                        backgroundColor: isChecked ? accent : "#fff",
+                      }}
                     >
-                      {isChecked && <Check size={11} className="text-stone-50" />}
+                      {isChecked && <Check size={13} strokeWidth={3} className="text-white" />}
                     </span>
                     <span
-                      className={`text-sm font-mono capitalize transition-colors ${
-                        isChecked ? "line-through text-stone-400" : "text-stone-700"
+                      className={`text-sm capitalize transition-colors ${
+                        isChecked ? "line-through text-stone-300" : "text-stone-700"
                       }`}
                     >
                       {item.name}
@@ -423,7 +461,7 @@ function WeeklyPlanner({ meals, plan, setPlan, checked, setChecked }) {
   );
 }
 
-export default function App() {
+export default function MealSelector() {
   const [meals, setMeals] = useState(() => loadLocal(MEALS_KEY, []));
   const [plan, setPlan] = useState(() => loadLocal(PLAN_KEY, {}));
   const [checked, setChecked] = useState(() => loadLocal(CHECKED_KEY, {}));
@@ -445,15 +483,11 @@ export default function App() {
     setMeals((prev) => prev.filter((m) => m.id !== id));
     setPlan((prev) => {
       const next = {};
-      Object.entries(prev).forEach(([day, ids]) => {
-        next[day] = ids.filter((mid) => mid !== id);
-      });
+      Object.entries(prev).forEach(([day, ids]) => (next[day] = ids.filter((mid) => mid !== id)));
       return next;
     });
     if (picked?.id === id) setPicked(null);
   };
-
-  const rotations = ["-rotate-1", "rotate-1", "-rotate-[0.5deg]", "rotate-[0.5deg]", "rotate-0"];
 
   const surprisePool =
     surpriseTag === "any" ? meals : meals.filter((m) => m.tags.includes(surpriseTag));
@@ -463,8 +497,7 @@ export default function App() {
     setSpinning(true);
     let count = 0;
     const interval = setInterval(() => {
-      const r = surprisePool[Math.floor(Math.random() * surprisePool.length)];
-      setPicked(r);
+      setPicked(surprisePool[Math.floor(Math.random() * surprisePool.length)]);
       count++;
       if (count > 8) {
         clearInterval(interval);
@@ -473,11 +506,7 @@ export default function App() {
     }, 80);
   };
 
-  const pantryItems = pantryText
-    .split(",")
-    .map((i) => normalize(i))
-    .filter(Boolean);
-
+  const pantryItems = pantryText.split(",").map(normalize).filter(Boolean);
   const pantryMatches = meals
     .map((m) => {
       const mealIngs = m.ingredients.map(normalize);
@@ -489,216 +518,227 @@ export default function App() {
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  const TABS = [
-    { id: "index", label: "My Meals", icon: ChefHat },
-    { id: "plan", label: "Weekly Plan", icon: CalendarDays },
-    { id: "surprise", label: "Surprise Me", icon: Shuffle },
-    { id: "pantry", label: "What Can I Make", icon: Search },
-  ];
+  const TABS = ["index", "plan", "surprise", "pantry"];
 
   return (
-    <div className="w-full min-h-screen bg-stone-200 flex justify-center p-4 font-mono">
-      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+    <div className="w-full min-h-[700px] bg-[#FDF0DC] flex justify-center p-4 sm:p-6">
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&display=swap');
+        @keyframes bounceIn { 0% { transform: scale(0.9) rotate(-2deg); } 50% { transform: scale(1.04) rotate(1deg); } 100% { transform: scale(1) rotate(0); } }
+      `}</style>
       <div className="w-full max-w-2xl">
-        <div className="mb-4">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-amber-700 font-bold">
-            Personal Kitchen System
-          </p>
-          <h1 className="text-2xl font-bold text-stone-800 tracking-tight flex items-center gap-2">
-            <ChefHat size={22} /> Meal Index
-          </h1>
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-6">
+          <div
+            className="w-14 h-14 rounded-full flex items-center justify-center shrink-0"
+            style={{ backgroundColor: "#FFD23F", border: `2.5px solid ${INK}`, transform: "rotate(-6deg)" }}
+          >
+            <ChefHat size={26} color={INK} />
+          </div>
+          <div>
+            <h1 className="text-3xl sm:text-4xl font-extrabold leading-none" style={{ ...display, color: INK }}>
+              Meal Index
+            </h1>
+            <p className="text-xs uppercase tracking-[0.2em] font-bold text-stone-400 mt-1">
+              your personal kitchen system
+            </p>
+          </div>
         </div>
 
-        <div className="flex gap-1 flex-wrap">
-          {TABS.map((t) => {
-            const Icon = t.icon;
+        {/* Section nav */}
+        <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
+          {TABS.map((id) => {
+            const s = SECTION[id];
+            const active = tab === id;
             return (
               <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={`flex items-center gap-1.5 text-[11px] uppercase tracking-widest px-3 py-2 rounded-t-sm border border-b-0 transition-colors ${
-                  tab === t.id
-                    ? "bg-stone-50 border-stone-300 text-stone-800 font-bold"
-                    : "bg-stone-300 border-stone-300 text-stone-600 hover:bg-stone-100"
-                }`}
+                key={id}
+                onClick={() => setTab(id)}
+                className="text-xs sm:text-sm uppercase tracking-wide font-bold px-4 py-2 rounded-full whitespace-nowrap transition-all"
+                style={
+                  active
+                    ? { backgroundColor: s.color, color: s.ink, border: `2.5px solid ${INK}`, ...pop(3), ...display }
+                    : { backgroundColor: "#fff", color: "#a8a29e", border: `2px solid #e7e5e4`, ...display }
+                }
               >
-                <Icon size={12} /> {t.label}
+                {s.name}
               </button>
             );
           })}
         </div>
 
-        <div className="bg-stone-50 border border-stone-300 rounded-b-sm rounded-tr-sm p-4 min-h-[440px]">
-          {tab === "index" && (
-            <div className="animate-[fadeIn_0.15s_ease-out]">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs text-stone-500">
-                  {meals.length} card{meals.length === 1 ? "" : "s"} on file
-                </p>
-                <button
-                  onClick={() => setShowAdd((s) => !s)}
-                  className="flex items-center gap-1 text-[11px] uppercase tracking-widest bg-emerald-800 text-stone-50 px-3 py-1.5 rounded-sm hover:bg-emerald-900 transition-colors"
-                >
-                  <Plus size={13} /> Add meal
-                </button>
-              </div>
-
-              {showAdd && <AddMealForm onAdd={addMeal} onClose={() => setShowAdd(false)} />}
-
-              {meals.length === 0 && !showAdd && (
-                <div className="text-center py-14 text-stone-400 text-xs">
-                  Empty box. File your first meal idea to get started.
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {meals.map((m, i) => (
-                  <IndexCard
-                    key={m.id}
-                    meal={m}
-                    onDelete={deleteMeal}
-                    rotate={rotations[i % rotations.length]}
-                  />
-                ))}
-              </div>
+        {tab === "index" && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm text-stone-500">
+                {meals.length} meal{meals.length === 1 ? "" : "s"} on file
+              </p>
+              <button
+                onClick={() => setShowAdd((s) => !s)}
+                className="flex items-center gap-1 text-xs uppercase tracking-widest font-bold text-white px-4 py-2 rounded-full"
+                style={{ backgroundColor: SECTION.index.color, border: `2px solid ${INK}`, ...pop(3) }}
+              >
+                <Plus size={14} /> Add meal
+              </button>
             </div>
-          )}
 
-          {tab === "plan" && (
-            <div className="animate-[fadeIn_0.15s_ease-out]">
-              <WeeklyPlanner
-                meals={meals}
-                plan={plan}
-                setPlan={setPlan}
-                checked={checked}
-                setChecked={setChecked}
-              />
+            {showAdd && <AddMealForm onAdd={addMeal} onClose={() => setShowAdd(false)} />}
+
+            {meals.length === 0 && !showAdd && (
+              <div className="text-center py-16 text-stone-400 text-sm">
+                Empty index. File your first meal idea to get started.
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-2">
+              {meals.map((m, i) => (
+                <MealCard key={m.id} meal={m} onDelete={deleteMeal} rotate={i} />
+              ))}
             </div>
-          )}
+          </div>
+        )}
 
-          {tab === "surprise" && (
-            <div className="flex flex-col items-center animate-[fadeIn_0.15s_ease-out]">
-              <div className="w-full flex flex-wrap gap-1.5 mb-5 justify-center">
-                <button
-                  onClick={() => setSurpriseTag("any")}
-                  className={`text-[10px] uppercase tracking-wide px-2 py-1 rounded-sm border ${
-                    surpriseTag === "any"
-                      ? "bg-stone-800 text-stone-50 border-stone-800"
-                      : "border-stone-300 text-stone-600"
-                  }`}
-                >
-                  any
-                </button>
-                {TAG_OPTIONS.map((t) => (
+        {tab === "plan" && (
+          <WeeklyPlanner meals={meals} plan={plan} setPlan={setPlan} checked={checked} setChecked={setChecked} />
+        )}
+
+        {tab === "surprise" && (
+          <div className="flex flex-col items-center">
+            <div className="w-full flex flex-wrap gap-1.5 mb-6 justify-center">
+              {["any", ...TAG_OPTIONS].map((t) => {
+                const active = surpriseTag === t;
+                const c = t === "any" ? { bg: INK, ink: "#fff" } : tagColor(t);
+                return (
                   <button
                     key={t}
                     onClick={() => setSurpriseTag(t)}
-                    className={`text-[10px] uppercase tracking-wide px-2 py-1 rounded-sm border ${
-                      surpriseTag === t
-                        ? "bg-stone-800 text-stone-50 border-stone-800"
-                        : "border-stone-300 text-stone-600"
-                    }`}
+                    className="text-[10px] uppercase tracking-wide font-bold px-2.5 py-1 rounded-full"
+                    style={{
+                      backgroundColor: active ? c.bg : "#fff",
+                      color: active ? c.ink : "#78716c",
+                      border: `2px solid ${INK}`,
+                    }}
                   >
                     {t}
                   </button>
-                ))}
-              </div>
+                );
+              })}
+            </div>
 
-              <div className="w-64 h-40 relative mb-5">
-                {picked ? (
-                  <div
-                    className={`w-full h-full bg-amber-50 border-2 border-stone-800 rounded-sm flex flex-col items-center justify-center px-4 text-center transition-transform ${
-                      spinning ? "scale-95 opacity-70" : "scale-100 opacity-100"
-                    }`}
-                    style={{ boxShadow: "3px 3px 0 rgba(28,25,23,0.15)" }}
-                  >
-                    <PunchHole className="absolute top-2 left-2" />
-                    <PunchHole className="absolute top-2 right-2" />
-                    <p className="font-bold text-lg text-stone-800">{picked.name}</p>
-                    {picked.ingredients.length > 0 && (
-                      <p className="text-[11px] text-stone-500 mt-1">
-                        {picked.ingredients.join(", ")}
-                      </p>
-                    )}
-                    <div className="flex gap-1 mt-2">
-                      {picked.tags.map((t) => (
-                        <TagChip key={t}>{t}</TagChip>
-                      ))}
-                    </div>
+            <div className="w-full max-w-sm h-48 relative mb-6">
+              {picked ? (
+                <div
+                  className="w-full h-full rounded-2xl bg-white flex flex-col items-center justify-center px-5 text-center"
+                  style={{
+                    border: `3px solid ${INK}`,
+                    ...pop(5),
+                    animation: spinning ? "none" : "bounceIn 0.35s ease-out",
+                  }}
+                >
+                  <div className="absolute -top-5">
+                    <Stamp tag={picked.tags[0] || "quick"} rotate="-5deg" />
                   </div>
-                ) : (
-                  <div className="w-full h-full border-2 border-dashed border-stone-300 rounded-sm flex items-center justify-center text-stone-400 text-xs text-center px-4">
-                    {surprisePool.length === 0 ? "No cards match that filter yet" : "Pull a card"}
+                  <p className="text-2xl font-extrabold mt-2" style={{ ...display, color: INK }}>
+                    {picked.name}
+                  </p>
+                  {picked.ingredients.length > 0 && (
+                    <p className="text-xs text-stone-500 mt-2">{picked.ingredients.join(", ")}</p>
+                  )}
+                  <div className="flex flex-wrap gap-1.5 mt-3 justify-center">
+                    {picked.tags.slice(1).map((t) => (
+                      <TagPill key={t} tag={t} />
+                    ))}
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div
+                  className="w-full h-full rounded-2xl flex items-center justify-center text-stone-400 text-sm text-center px-4"
+                  style={{ border: `3px dashed #d6d3d1` }}
+                >
+                  {surprisePool.length === 0 ? "No meals match that filter yet" : "Pull a card"}
+                </div>
+              )}
+            </div>
 
-              <button
-                onClick={shuffle}
-                disabled={surprisePool.length === 0}
-                className="flex items-center gap-2 text-xs uppercase tracking-widest bg-amber-700 disabled:bg-stone-300 disabled:text-stone-500 text-stone-50 px-5 py-2.5 rounded-sm hover:bg-amber-800 transition-colors"
-              >
-                <Shuffle size={14} /> {picked ? "Pull again" : "Pull a card"}
-              </button>
-              <p className="text-[10px] text-stone-400 mt-3">
-                {surprisePool.length} card{surprisePool.length === 1 ? "" : "s"} in this pile
+            <button
+              onClick={shuffle}
+              disabled={surprisePool.length === 0}
+              className="flex items-center gap-2 text-sm uppercase tracking-widest font-bold px-7 py-3.5 rounded-full disabled:opacity-40"
+              style={{
+                backgroundColor: SECTION.surprise.color,
+                color: SECTION.surprise.ink,
+                border: `2.5px solid ${INK}`,
+                ...pop(4),
+                ...display,
+              }}
+            >
+              <Shuffle size={16} /> {picked ? "Pull again" : "Pull a card"}
+            </button>
+            <p className="text-xs text-stone-400 mt-3">
+              {surprisePool.length} meal{surprisePool.length === 1 ? "" : "s"} in this pile
+            </p>
+          </div>
+        )}
+
+        {tab === "pantry" && (
+          <div>
+            <label className="text-[11px] uppercase tracking-widest font-bold text-stone-400 flex items-center gap-1 mb-1.5">
+              <Search size={11} /> What's in the kitchen?
+            </label>
+            <input
+              value={pantryText}
+              onChange={(e) => setPantryText(e.target.value)}
+              placeholder="chicken thighs, rice, broccoli, soy sauce"
+              className="w-full bg-transparent border-b-[3px] border-stone-200 text-base py-2 mb-5 focus:outline-none"
+              style={{ borderColor: pantryText ? SECTION.pantry.color : undefined }}
+            />
+
+            {meals.length === 0 && (
+              <p className="text-sm text-stone-400 text-center py-14">
+                Add a few meals to your index first — matches come from ingredients you've filed.
               </p>
-            </div>
-          )}
+            )}
+            {meals.length > 0 && pantryItems.length === 0 && (
+              <p className="text-sm text-stone-400 text-center py-14">
+                List what you've got, comma separated, and I'll match it against your index.
+              </p>
+            )}
+            {pantryItems.length > 0 && pantryMatches.length === 0 && (
+              <p className="text-sm text-stone-400 text-center py-14">
+                No overlap yet. Try fewer or more general ingredient names.
+              </p>
+            )}
 
-          {tab === "pantry" && (
-            <div className="animate-[fadeIn_0.15s_ease-out]">
-              <label className="text-[10px] uppercase tracking-widest text-stone-500 flex items-center gap-1 mb-1">
-                <Search size={11} /> What's in the kitchen?
-              </label>
-              <input
-                value={pantryText}
-                onChange={(e) => setPantryText(e.target.value)}
-                placeholder="chicken thighs, rice, broccoli, soy sauce"
-                className="w-full bg-transparent border-b border-stone-400 text-sm text-stone-800 py-1.5 mb-4 focus:outline-none focus:border-emerald-800"
-              />
-
-              {meals.length === 0 && (
-                <p className="text-xs text-stone-400 text-center py-10">
-                  Add a few meals to your index first — matches come from ingredients you've filed
-                  on a card.
-                </p>
-              )}
-
-              {meals.length > 0 && pantryItems.length === 0 && (
-                <p className="text-xs text-stone-400 text-center py-10">
-                  List what you've got, comma separated, and I'll match it against your cards.
-                </p>
-              )}
-
-              {pantryItems.length > 0 && pantryMatches.length === 0 && (
-                <p className="text-xs text-stone-400 text-center py-10">
-                  No overlap with any filed card yet. Try fewer or more general ingredient names.
-                </p>
-              )}
-
-              <div className="space-y-3">
-                {pantryMatches.slice(0, 6).map(({ meal, missing, score }) => (
-                  <div key={meal.id} className="bg-amber-50 border border-stone-300 rounded-sm p-3 relative">
-                    <div className="flex items-center justify-between">
-                      <p className="font-bold text-sm text-stone-800">{meal.name}</p>
-                      <span className="text-[10px] uppercase tracking-wide text-emerald-800 font-bold">
-                        {Math.round(score * 100)}% match
-                      </span>
-                    </div>
-                    {missing.length > 0 ? (
-                      <p className="text-[11px] text-stone-500 mt-1">Missing: {missing.join(", ")}</p>
-                    ) : (
-                      <p className="text-[11px] text-emerald-800 mt-1">
-                        You have everything for this one.
-                      </p>
-                    )}
+            <div className="space-y-3">
+              {pantryMatches.slice(0, 6).map(({ meal, missing, score }) => (
+                <div
+                  key={meal.id}
+                  className="bg-white rounded-2xl p-4 relative"
+                  style={{ border: `2.5px solid ${INK}`, ...pop(3) }}
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="text-lg font-bold" style={{ ...display, color: INK }}>
+                      {meal.name}
+                    </p>
+                    <span
+                      className="text-[10px] uppercase tracking-wide font-bold px-2.5 py-1 rounded-full"
+                      style={{ backgroundColor: SECTION.pantry.color, color: "#fff", border: `1.5px solid ${INK}` }}
+                    >
+                      {Math.round(score * 100)}%
+                    </span>
                   </div>
-                ))}
-              </div>
+                  {missing.length > 0 ? (
+                    <p className="text-sm text-stone-500 mt-1">Missing: {missing.join(", ")}</p>
+                  ) : (
+                    <p className="text-sm mt-1 font-bold" style={{ color: "#06A77D" }}>
+                      You have everything for this one!
+                    </p>
+                  )}
+                </div>
+              ))}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
