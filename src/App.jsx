@@ -13,6 +13,7 @@ import {
   RotateCcw,
   ChefHat,
   Image as ImageIcon,
+  AlertCircle,
 } from "lucide-react";
 
 const TAG_OPTIONS = ["breakfast", "lunch", "dinner", "snack", "high-protein", "quick", "batch"];
@@ -22,24 +23,8 @@ const MEALS_KEY = "meal-index:meals";
 const PLAN_KEY = "meal-index:weeklyPlan";
 const CHECKED_KEY = "meal-index:groceryChecked";
 const LOG_KEY = "meal-index:cookLog";
-
-// --- Local storage helpers (swap-in replacement for Claude's window.storage) ---
-function loadLocal(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch (err) {
-    console.error("Failed to load", key, err);
-    return fallback;
-  }
-}
-function saveLocal(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (err) {
-    console.error("Failed to save", key, err);
-  }
-}
+const ESSENTIALS_KEY = "meal-index:essentials";
+const EXTRAS_KEY = "meal-index:groceryExtras";
 
 const INK = "#171717";
 
@@ -59,6 +44,7 @@ const SECTION = {
   home: { name: "Home", color: "#3A86FF", ink: "#FFFFFF" },
   index: { name: "My Meals", color: "#FF5A5F", ink: "#FFFFFF" },
   plan: { name: "Weekly Plan", color: "#06A77D", ink: "#FFFFFF" },
+  groceries: { name: "Groceries", color: "#FF206E", ink: "#FFFFFF" },
   surprise: { name: "Surprise Me", color: "#FFD23F", ink: INK },
   pantry: { name: "What Can I Make", color: "#8338EC", ink: "#FFFFFF" },
 };
@@ -86,6 +72,11 @@ function todayIndex() {
 }
 function todayDateStr() {
   return new Date().toISOString().slice(0, 10);
+}
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  const ms = Date.now() - new Date(dateStr + "T00:00:00").getTime();
+  return Math.floor(ms / 86400000);
 }
 function formatShortDate(dateStr) {
   const d = new Date(dateStr + "T00:00:00");
@@ -603,7 +594,7 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
   );
 }
 
-function WeeklyPlanner({ meals, plan, setPlan, checked, setChecked }) {
+function WeeklyPlanner({ meals, plan, setPlan }) {
   const tIdx = todayIndex();
   const accent = SECTION.plan.color;
 
@@ -617,34 +608,13 @@ function WeeklyPlanner({ meals, plan, setPlan, checked, setChecked }) {
   };
   const removeMeal = (dayIdx, mealId) =>
     setPlan((prev) => ({ ...prev, [dayIdx]: (prev[dayIdx] || []).filter((id) => id !== mealId) }));
-  const clearWeek = () => {
-    setPlan({});
-    setChecked({});
-  };
+  const clearWeek = () => setPlan({});
 
   const mealById = useMemo(() => {
     const m = {};
     meals.forEach((meal) => (m[meal.id] = meal));
     return m;
   }, [meals]);
-
-  const groceryList = useMemo(() => {
-    const counts = {};
-    Object.values(plan).forEach((ids) =>
-      (ids || []).forEach((id) => {
-        const meal = mealById[id];
-        if (!meal) return;
-        meal.ingredients.forEach((ing) => {
-          const key = normalize(ing);
-          if (!key) return;
-          counts[key] = (counts[key] || 0) + 1;
-        });
-      })
-    );
-    return Object.entries(counts)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [plan, mealById]);
 
   const plannedCount = Object.values(plan).reduce((acc, ids) => acc + (ids?.length || 0), 0);
 
@@ -723,50 +693,287 @@ function WeeklyPlanner({ meals, plan, setPlan, checked, setChecked }) {
         </div>
       )}
 
-      {groceryList.length > 0 && (
-        <div
-          className="mt-7 pt-5 rounded-t-xl"
-          style={{ borderTop: `3px dashed ${INK}` }}
+      <div
+        className="mt-6 rounded-xl p-3 flex items-center justify-between"
+        style={{ border: `2px dashed #d6d3d1` }}
+      >
+        <p className="text-xs text-stone-400">
+          Your grocery list now lives on its own page — auto-filled from this plan, plus your
+          essentials.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function GroceriesScreen({
+  meals,
+  plan,
+  checked,
+  setChecked,
+  essentials,
+  setEssentials,
+  extras,
+  setExtras,
+}) {
+  const accent = SECTION.groceries.color;
+  const [newEssential, setNewEssential] = useState("");
+  const [newExtra, setNewExtra] = useState("");
+
+  const mealById = useMemo(() => {
+    const m = {};
+    meals.forEach((meal) => (m[meal.id] = meal));
+    return m;
+  }, [meals]);
+
+  const planList = useMemo(() => {
+    const counts = {};
+    Object.values(plan).forEach((ids) =>
+      (ids || []).forEach((id) => {
+        const meal = mealById[id];
+        if (!meal) return;
+        meal.ingredients.forEach((ing) => {
+          const key = normalize(ing);
+          if (!key) return;
+          counts[key] = (counts[key] || 0) + 1;
+        });
+      })
+    );
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [plan, mealById]);
+
+  const sortedEssentials = useMemo(
+    () =>
+      [...essentials].sort((a, b) => {
+        const da = daysSince(a.lastBought);
+        const db = daysSince(b.lastBought);
+        if (da === null && db === null) return 0;
+        if (da === null) return -1;
+        if (db === null) return 1;
+        return db - da;
+      }),
+    [essentials]
+  );
+
+  const addEssential = (e) => {
+    e.preventDefault();
+    if (!newEssential.trim()) return;
+    setEssentials((prev) => [...prev, { id: uid(), name: newEssential.trim(), lastBought: null }]);
+    setNewEssential("");
+  };
+  const removeEssential = (id) => setEssentials((prev) => prev.filter((x) => x.id !== id));
+  const toggleEssential = (item) => {
+    const key = `essential:${item.id}`;
+    const willCheck = !checked[key];
+    setChecked((prev) => ({ ...prev, [key]: willCheck }));
+    if (willCheck) {
+      setEssentials((prev) =>
+        prev.map((x) => (x.id === item.id ? { ...x, lastBought: todayDateStr() } : x))
+      );
+    }
+  };
+
+  const addExtra = (e) => {
+    e.preventDefault();
+    if (!newExtra.trim()) return;
+    setExtras((prev) => [...prev, { id: uid(), name: newExtra.trim() }]);
+    setNewExtra("");
+  };
+  const removeExtra = (id) => {
+    setExtras((prev) => prev.filter((x) => x.id !== id));
+    setChecked((prev) => {
+      const next = { ...prev };
+      delete next[`extra:${id}`];
+      return next;
+    });
+  };
+
+  const Checkbox = ({ isChecked, onClick }) => (
+    <button
+      onClick={onClick}
+      className="w-5 h-5 shrink-0 rounded-md flex items-center justify-center transition-colors"
+      style={{ border: `2px solid ${INK}`, backgroundColor: isChecked ? accent : "#fff" }}
+    >
+      {isChecked && <Check size={13} strokeWidth={3} className="text-white" />}
+    </button>
+  );
+
+  return (
+    <div>
+      {/* Section 1: from the plan */}
+      <div className="mb-8">
+        <h3
+          className="flex items-center gap-1.5 text-sm uppercase tracking-widest font-bold mb-1"
+          style={{ color: INK, ...display }}
         >
-          <h3
-            className="flex items-center gap-1.5 text-base uppercase tracking-widest font-bold mb-3"
-            style={{ color: INK, ...display }}
-          >
-            <ShoppingBasket size={17} /> Grocery list
-          </h3>
+          <ShoppingBasket size={16} /> From your meal plan
+        </h3>
+        <p className="text-xs text-stone-400 mb-3">Auto-filled from Weekly Plan.</p>
+        {planList.length === 0 ? (
+          <p className="text-sm text-stone-400">Nothing planned this week yet.</p>
+        ) : (
           <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
-            {groceryList.map((item) => {
-              const isChecked = !!checked[item.name];
+            {planList.map((item) => {
+              const isChecked = !!checked[`plan:${item.name}`];
               return (
-                <li key={item.name}>
-                  <button
-                    onClick={() => setChecked((prev) => ({ ...prev, [item.name]: !prev[item.name] }))}
-                    className="w-full flex items-center gap-2 py-1.5 text-left group"
+                <li key={item.name} className="flex items-center gap-2 py-1.5">
+                  <Checkbox
+                    isChecked={isChecked}
+                    onClick={() =>
+                      setChecked((prev) => ({
+                        ...prev,
+                        [`plan:${item.name}`]: !prev[`plan:${item.name}`],
+                      }))
+                    }
+                  />
+                  <span
+                    className={`text-sm capitalize transition-colors ${
+                      isChecked ? "line-through text-stone-300" : "text-stone-700"
+                    }`}
                   >
-                    <span
-                      className="w-5 h-5 shrink-0 rounded-md flex items-center justify-center transition-colors"
-                      style={{
-                        border: `2px solid ${INK}`,
-                        backgroundColor: isChecked ? accent : "#fff",
-                      }}
-                    >
-                      {isChecked && <Check size={13} strokeWidth={3} className="text-white" />}
-                    </span>
-                    <span
-                      className={`text-sm capitalize transition-colors ${
-                        isChecked ? "line-through text-stone-300" : "text-stone-700"
-                      }`}
-                    >
-                      {item.name}
-                      {item.count > 1 && <span className="text-stone-400"> ×{item.count}</span>}
-                    </span>
+                    {item.name}
+                    {item.count > 1 && (
+                      <span className="text-stone-400 font-normal">
+                        {" "}
+                        · needed for {item.count} meals
+                      </span>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* Section 2: essentials / time to restock */}
+      <div className="mb-8 pt-6" style={{ borderTop: `2px dashed #e7e5e4` }}>
+        <h3
+          className="flex items-center gap-1.5 text-sm uppercase tracking-widest font-bold mb-1"
+          style={{ color: INK, ...display }}
+        >
+          <AlertCircle size={16} /> Time to restock
+        </h3>
+        <p className="text-xs text-stone-400 mb-3">
+          Your recurring essentials — checking one off logs today as the last time you bought it.
+        </p>
+
+        {sortedEssentials.length > 0 && (
+          <ul className="space-y-1.5 mb-3">
+            {sortedEssentials.map((item) => {
+              const isChecked = !!checked[`essential:${item.id}`];
+              const d = daysSince(item.lastBought);
+              const overdue = d === null || d >= 10;
+              return (
+                <li key={item.id} className="flex items-center gap-2 group">
+                  <Checkbox isChecked={isChecked} onClick={() => toggleEssential(item)} />
+                  <span
+                    className={`text-sm capitalize flex-1 ${
+                      isChecked ? "line-through text-stone-300" : "text-stone-700"
+                    }`}
+                  >
+                    {item.name}
+                  </span>
+                  <span
+                    className="text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded-full"
+                    style={{
+                      backgroundColor: overdue ? "#FEE2E2" : "#f5f5f4",
+                      color: overdue ? "#B91C1C" : "#a8a29e",
+                    }}
+                  >
+                    {d === null ? "never bought" : `${d}d ago`}
+                  </span>
+                  <button
+                    onClick={() => removeEssential(item.id)}
+                    className="text-stone-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 size={13} />
                   </button>
                 </li>
               );
             })}
           </ul>
-        </div>
-      )}
+        )}
+
+        <form onSubmit={addEssential} className="flex gap-2">
+          <input
+            value={newEssential}
+            onChange={(e) => setNewEssential(e.target.value)}
+            placeholder="eggs, jelly, coffee…"
+            className="flex-1 bg-transparent border-b-2 border-stone-200 text-sm py-1.5 focus:outline-none focus:border-[#FF206E]"
+          />
+          <button
+            type="submit"
+            className="text-xs uppercase tracking-widest font-bold px-3 py-1.5 rounded-full"
+            style={{ backgroundColor: accent, color: "#fff", border: `2px solid ${INK}` }}
+          >
+            <Plus size={13} />
+          </button>
+        </form>
+      </div>
+
+      {/* Section 3: add your own */}
+      <div className="pt-6" style={{ borderTop: `2px dashed #e7e5e4` }}>
+        <h3
+          className="flex items-center gap-1.5 text-sm uppercase tracking-widest font-bold mb-1"
+          style={{ color: INK, ...display }}
+        >
+          <Plus size={16} /> Add your own
+        </h3>
+        <p className="text-xs text-stone-400 mb-3">One-off items just for this trip.</p>
+
+        {extras.length > 0 && (
+          <ul className="space-y-1.5 mb-3">
+            {extras.map((item) => {
+              const isChecked = !!checked[`extra:${item.id}`];
+              return (
+                <li key={item.id} className="flex items-center gap-2 group">
+                  <Checkbox
+                    isChecked={isChecked}
+                    onClick={() =>
+                      setChecked((prev) => ({
+                        ...prev,
+                        [`extra:${item.id}`]: !prev[`extra:${item.id}`],
+                      }))
+                    }
+                  />
+                  <span
+                    className={`text-sm capitalize flex-1 ${
+                      isChecked ? "line-through text-stone-300" : "text-stone-700"
+                    }`}
+                  >
+                    {item.name}
+                  </span>
+                  <button
+                    onClick={() => removeExtra(item.id)}
+                    className="text-stone-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        <form onSubmit={addExtra} className="flex gap-2">
+          <input
+            value={newExtra}
+            onChange={(e) => setNewExtra(e.target.value)}
+            placeholder="paper towels, birthday candles…"
+            className="flex-1 bg-transparent border-b-2 border-stone-200 text-sm py-1.5 focus:outline-none focus:border-[#FF206E]"
+          />
+          <button
+            type="submit"
+            className="text-xs uppercase tracking-widest font-bold px-3 py-1.5 rounded-full"
+            style={{ backgroundColor: accent, color: "#fff", border: `2px solid ${INK}` }}
+          >
+            <Plus size={13} />
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
@@ -818,10 +1025,13 @@ function Splash({ onEnter }) {
 
 export default function MealSelector() {
   const [entered, setEntered] = useState(false);
-  const [meals, setMeals] = useState(() => loadLocal(MEALS_KEY, []));
-  const [plan, setPlan] = useState(() => loadLocal(PLAN_KEY, {}));
-  const [checked, setChecked] = useState(() => loadLocal(CHECKED_KEY, {}));
-  const [cookLog, setCookLog] = useState(() => loadLocal(LOG_KEY, []));
+  const [meals, setMeals] = useState([]);
+  const [plan, setPlan] = useState({});
+  const [checked, setChecked] = useState({});
+  const [cookLog, setCookLog] = useState([]);
+  const [essentials, setEssentials] = useState([]);
+  const [extras, setExtras] = useState([]);
+  const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
   const [showAdd, setShowAdd] = useState(false);
 
@@ -831,10 +1041,54 @@ export default function MealSelector() {
 
   const [pantryText, setPantryText] = useState("");
 
-  useEffect(() => saveLocal(MEALS_KEY, meals), [meals]);
-  useEffect(() => saveLocal(PLAN_KEY, plan), [plan]);
-  useEffect(() => saveLocal(CHECKED_KEY, checked), [checked]);
-  useEffect(() => saveLocal(LOG_KEY, cookLog), [cookLog]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const m = await window.storage.get(MEALS_KEY, false);
+        if (m?.value) setMeals(JSON.parse(m.value));
+      } catch (e) {}
+      try {
+        const p = await window.storage.get(PLAN_KEY, false);
+        if (p?.value) setPlan(JSON.parse(p.value));
+      } catch (e) {}
+      try {
+        const c = await window.storage.get(CHECKED_KEY, false);
+        if (c?.value) setChecked(JSON.parse(c.value));
+      } catch (e) {}
+      try {
+        const l = await window.storage.get(LOG_KEY, false);
+        if (l?.value) setCookLog(JSON.parse(l.value));
+      } catch (e) {}
+      try {
+        const es = await window.storage.get(ESSENTIALS_KEY, false);
+        if (es?.value) setEssentials(JSON.parse(es.value));
+      } catch (e) {}
+      try {
+        const ex = await window.storage.get(EXTRAS_KEY, false);
+        if (ex?.value) setExtras(JSON.parse(ex.value));
+      } catch (e) {}
+      setLoaded(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (loaded) window.storage.set(MEALS_KEY, JSON.stringify(meals), false).catch(() => {});
+  }, [meals, loaded]);
+  useEffect(() => {
+    if (loaded) window.storage.set(PLAN_KEY, JSON.stringify(plan), false).catch(() => {});
+  }, [plan, loaded]);
+  useEffect(() => {
+    if (loaded) window.storage.set(CHECKED_KEY, JSON.stringify(checked), false).catch(() => {});
+  }, [checked, loaded]);
+  useEffect(() => {
+    if (loaded) window.storage.set(LOG_KEY, JSON.stringify(cookLog), false).catch(() => {});
+  }, [cookLog, loaded]);
+  useEffect(() => {
+    if (loaded) window.storage.set(ESSENTIALS_KEY, JSON.stringify(essentials), false).catch(() => {});
+  }, [essentials, loaded]);
+  useEffect(() => {
+    if (loaded) window.storage.set(EXTRAS_KEY, JSON.stringify(extras), false).catch(() => {});
+  }, [extras, loaded]);
 
   const logCook = (mealId) =>
     setCookLog((prev) => [...prev, { id: uid(), mealId, date: todayDateStr() }]);
@@ -889,7 +1143,7 @@ export default function MealSelector() {
     .filter((r) => r.score > 0)
     .sort((a, b) => b.score - a.score);
 
-  const TABS = ["home", "index", "plan", "surprise", "pantry"];
+  const TABS = ["home", "index", "plan", "groceries", "surprise", "pantry"];
 
   if (!entered) {
     return <Splash onEnter={() => setEntered(true)} />;
@@ -942,7 +1196,9 @@ export default function MealSelector() {
           })}
         </div>
 
-        {tab === "home" && (
+        {!loaded && <p className="text-sm text-stone-400 text-center py-16">Loading your index…</p>}
+
+        {loaded && tab === "home" && (
           <HomeScreen
             meals={meals}
             plan={plan}
@@ -952,7 +1208,7 @@ export default function MealSelector() {
           />
         )}
 
-        {tab === "index" && (
+        {loaded && tab === "index" && (
           <div>
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm text-stone-500">
@@ -990,11 +1246,24 @@ export default function MealSelector() {
           </div>
         )}
 
-        {tab === "plan" && (
-          <WeeklyPlanner meals={meals} plan={plan} setPlan={setPlan} checked={checked} setChecked={setChecked} />
+        {loaded && tab === "plan" && (
+          <WeeklyPlanner meals={meals} plan={plan} setPlan={setPlan} />
         )}
 
-        {tab === "surprise" && (
+        {loaded && tab === "groceries" && (
+          <GroceriesScreen
+            meals={meals}
+            plan={plan}
+            checked={checked}
+            setChecked={setChecked}
+            essentials={essentials}
+            setEssentials={setEssentials}
+            extras={extras}
+            setExtras={setExtras}
+          />
+        )}
+
+        {loaded && tab === "surprise" && (
           <div className="flex flex-col items-center">
             <div className="w-full flex flex-wrap gap-1.5 mb-6 justify-center">
               {["any", ...TAG_OPTIONS].map((t) => {
@@ -1072,7 +1341,7 @@ export default function MealSelector() {
           </div>
         )}
 
-        {tab === "pantry" && (
+        {loaded && tab === "pantry" && (
           <div>
             <label className="text-[11px] uppercase tracking-widest font-bold text-stone-400 flex items-center gap-1 mb-1.5">
               <Search size={11} /> What's in the kitchen?
