@@ -26,6 +26,24 @@ const LOG_KEY = "meal-index:cookLog";
 const ESSENTIALS_KEY = "meal-index:essentials";
 const EXTRAS_KEY = "meal-index:groceryExtras";
 
+// --- Local storage helpers (swap-in replacement for Claude's window.storage) ---
+function loadLocal(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (err) {
+    console.error("Failed to load", key, err);
+    return fallback;
+  }
+}
+function saveLocal(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (err) {
+    console.error("Failed to save", key, err);
+  }
+}
+
 const INK = "#171717";
 
 // Loud, saturated, one distinct color per category — this is where the
@@ -1025,12 +1043,12 @@ function Splash({ onEnter }) {
 
 export default function MealSelector() {
   const [entered, setEntered] = useState(false);
-  const [meals, setMeals] = useState([]);
-  const [plan, setPlan] = useState({});
-  const [checked, setChecked] = useState({});
-  const [cookLog, setCookLog] = useState([]);
-  const [essentials, setEssentials] = useState([]);
-  const [extras, setExtras] = useState([]);
+  const [meals, setMeals] = useState(() => loadLocal(MEALS_KEY, []));
+  const [plan, setPlan] = useState(() => loadLocal(PLAN_KEY, {}));
+  const [checked, setChecked] = useState(() => loadLocal(CHECKED_KEY, {}));
+  const [cookLog, setCookLog] = useState(() => loadLocal(LOG_KEY, []));
+  const [essentials, setEssentials] = useState(() => loadLocal(ESSENTIALS_KEY, []));
+  const [extras, setExtras] = useState(() => loadLocal(EXTRAS_KEY, []));
   const [loaded, setLoaded] = useState(false);
   const [tab, setTab] = useState("home");
   const [showAdd, setShowAdd] = useState(false);
@@ -1041,54 +1059,12 @@ export default function MealSelector() {
 
   const [pantryText, setPantryText] = useState("");
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const m = await window.storage.get(MEALS_KEY, false);
-        if (m?.value) setMeals(JSON.parse(m.value));
-      } catch (e) {}
-      try {
-        const p = await window.storage.get(PLAN_KEY, false);
-        if (p?.value) setPlan(JSON.parse(p.value));
-      } catch (e) {}
-      try {
-        const c = await window.storage.get(CHECKED_KEY, false);
-        if (c?.value) setChecked(JSON.parse(c.value));
-      } catch (e) {}
-      try {
-        const l = await window.storage.get(LOG_KEY, false);
-        if (l?.value) setCookLog(JSON.parse(l.value));
-      } catch (e) {}
-      try {
-        const es = await window.storage.get(ESSENTIALS_KEY, false);
-        if (es?.value) setEssentials(JSON.parse(es.value));
-      } catch (e) {}
-      try {
-        const ex = await window.storage.get(EXTRAS_KEY, false);
-        if (ex?.value) setExtras(JSON.parse(ex.value));
-      } catch (e) {}
-      setLoaded(true);
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (loaded) window.storage.set(MEALS_KEY, JSON.stringify(meals), false).catch(() => {});
-  }, [meals, loaded]);
-  useEffect(() => {
-    if (loaded) window.storage.set(PLAN_KEY, JSON.stringify(plan), false).catch(() => {});
-  }, [plan, loaded]);
-  useEffect(() => {
-    if (loaded) window.storage.set(CHECKED_KEY, JSON.stringify(checked), false).catch(() => {});
-  }, [checked, loaded]);
-  useEffect(() => {
-    if (loaded) window.storage.set(LOG_KEY, JSON.stringify(cookLog), false).catch(() => {});
-  }, [cookLog, loaded]);
-  useEffect(() => {
-    if (loaded) window.storage.set(ESSENTIALS_KEY, JSON.stringify(essentials), false).catch(() => {});
-  }, [essentials, loaded]);
-  useEffect(() => {
-    if (loaded) window.storage.set(EXTRAS_KEY, JSON.stringify(extras), false).catch(() => {});
-  }, [extras, loaded]);
+  useEffect(() => saveLocal(MEALS_KEY, meals), [meals]);
+  useEffect(() => saveLocal(PLAN_KEY, plan), [plan]);
+  useEffect(() => saveLocal(CHECKED_KEY, checked), [checked]);
+  useEffect(() => saveLocal(LOG_KEY, cookLog), [cookLog]);
+  useEffect(() => saveLocal(ESSENTIALS_KEY, essentials), [essentials]);
+  useEffect(() => saveLocal(EXTRAS_KEY, extras), [extras]);
 
   const logCook = (mealId) =>
     setCookLog((prev) => [...prev, { id: uid(), mealId, date: todayDateStr() }]);
@@ -1196,9 +1172,7 @@ export default function MealSelector() {
           })}
         </div>
 
-        {!loaded && <p className="text-sm text-stone-400 text-center py-16">Loading your index…</p>}
-
-        {loaded && tab === "home" && (
+        {tab === "home" && (
           <HomeScreen
             meals={meals}
             plan={plan}
@@ -1208,7 +1182,7 @@ export default function MealSelector() {
           />
         )}
 
-        {loaded && tab === "index" && (
+        {tab === "index" && (
           <div>
             <div className="flex items-center justify-between mb-4">
               <p className="text-sm text-stone-500">
@@ -1246,11 +1220,11 @@ export default function MealSelector() {
           </div>
         )}
 
-        {loaded && tab === "plan" && (
+        {tab === "plan" && (
           <WeeklyPlanner meals={meals} plan={plan} setPlan={setPlan} />
         )}
 
-        {loaded && tab === "groceries" && (
+        {tab === "groceries" && (
           <GroceriesScreen
             meals={meals}
             plan={plan}
@@ -1263,7 +1237,7 @@ export default function MealSelector() {
           />
         )}
 
-        {loaded && tab === "surprise" && (
+        {tab === "surprise" && (
           <div className="flex flex-col items-center">
             <div className="w-full flex flex-wrap gap-1.5 mb-6 justify-center">
               {["any", ...TAG_OPTIONS].map((t) => {
@@ -1341,7 +1315,7 @@ export default function MealSelector() {
           </div>
         )}
 
-        {loaded && tab === "pantry" && (
+        {tab === "pantry" && (
           <div>
             <label className="text-[11px] uppercase tracking-widest font-bold text-stone-400 flex items-center gap-1 mb-1.5">
               <Search size={11} /> What's in the kitchen?
