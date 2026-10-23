@@ -1255,7 +1255,7 @@ const TOUR_STEPS = [
     icon: ChefHat,
     color: "#FFD23F",
     ink: INK,
-    title: "Welcome to Meal Index",
+    title: "Welcome to Meal Deck",
     body: "Your meals, your week and your grocery list in one place. Here's a 30 second tour.",
   },
   {
@@ -1430,7 +1430,7 @@ function Splash({ onEnter, themeVars }) {
           className="text-[56px] sm:text-6xl font-extrabold leading-[0.95]"
           style={{ ...display, color: "var(--ink)" }}
         >
-          Meal Index
+          Meal Deck
         </h1>
         <p className="text-xs uppercase tracking-[0.25em] font-bold text-[color:var(--muted)] mt-4">
           your personal kitchen system
@@ -1617,7 +1617,7 @@ export default function MealSelector() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `meal-index-backup-${todayDateStr()}.json`;
+    a.download = `meal-deck-backup-${todayDateStr()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -1732,7 +1732,7 @@ export default function MealSelector() {
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-[28px] sm:text-4xl font-extrabold leading-none" style={{ ...display, color: "var(--ink)" }}>
-              Meal Index
+              Meal Deck
             </h1>
             <p className="hidden sm:block text-xs uppercase tracking-[0.2em] font-bold text-[color:var(--muted)] mt-1">
               your personal kitchen system

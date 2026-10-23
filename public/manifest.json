@@ -1,6 +1,6 @@
 {
-  "name": "Meal Index",
-  "short_name": "Meal Index",
+  "name": "Meal Deck",
+  "short_name": "Meal Deck",
   "description": "Personal meal-prep selector, weekly planner, and grocery list",
   "start_url": "/",
   "display": "standalone",
