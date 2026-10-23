@@ -1374,7 +1374,30 @@ function Tour({ onClose }) {
   );
 }
 
-function Splash({ onEnter, themeVars }) {
+function Splash({ onEnter, onEmail, themeVars }) {
+  const [showEmail, setShowEmail] = useState(false);
+  const [mode, setMode] = useState("signin");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submitEmail = async (e) => {
+    e.preventDefault();
+    setError("");
+    if (password.length < 6) {
+      setError("Use a password with at least 6 characters.");
+      return;
+    }
+    setBusy(true);
+    const msg = await onEmail(mode, email.trim(), password);
+    setBusy(false);
+    if (msg) setError(msg);
+  };
+  const field = {
+    border: "2px solid var(--ink)",
+    backgroundColor: "var(--card-bg)",
+    color: "var(--ink)",
+  };
   const decorations = [
     { tag: "breakfast", rotate: "-10deg", pos: "top-8 left-6 lg:left-24" },
     { tag: "dinner", rotate: "8deg", pos: "top-14 right-6 lg:right-24" },
@@ -1466,6 +1489,60 @@ function Splash({ onEnter, themeVars }) {
           </span>
           Continue with Google
         </button>
+        {!showEmail ? (
+          <button
+            onClick={() => setShowEmail(true)}
+            className="mt-4 text-sm font-bold underline underline-offset-2 text-[color:var(--ink)]"
+          >
+            or use email instead
+          </button>
+        ) : (
+          <form onSubmit={submitEmail} className="mt-5 text-left space-y-3">
+            <input
+              type="email"
+              required
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email"
+              className="w-full rounded-full px-4 py-3 text-base focus:outline-none"
+              style={field}
+            />
+            <input
+              type="password"
+              required
+              autoComplete={mode === "signup" ? "new-password" : "current-password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              className="w-full rounded-full px-4 py-3 text-base focus:outline-none"
+              style={field}
+            />
+            {error && (
+              <p className="text-sm font-bold text-[#FF5A5F] leading-snug" role="alert">
+                {error}
+              </p>
+            )}
+            <button
+              type="submit"
+              disabled={busy}
+              className="w-full text-sm uppercase tracking-widest font-bold py-3 rounded-full disabled:opacity-60 active:translate-y-px"
+              style={{ backgroundColor: "#FFD23F", color: INK, border: "3px solid var(--ink)", ...pop(4), ...display }}
+            >
+              {busy ? "One sec…" : mode === "signup" ? "Create account" : "Sign in"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode((m) => (m === "signup" ? "signin" : "signup"));
+                setError("");
+              }}
+              className="block mx-auto text-sm font-bold underline underline-offset-2 text-[color:var(--muted)]"
+            >
+              {mode === "signup" ? "Already have an account? Sign in" : "New here? Create an account"}
+            </button>
+          </form>
+        )}
         <p className="text-xs text-[color:var(--muted)] mt-4 leading-snug">
           Signing in keeps your meals synced across every device.
         </p>
@@ -1536,6 +1613,23 @@ export default function MealSelector() {
 
   const signInWithGoogle = () => {
     supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+  };
+  const signInWithEmail = async (mode, email, password) => {
+    const { data, error } =
+      mode === "signup"
+        ? await supabase.auth.signUp({ email, password })
+        : await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      const m = error.message || "";
+      if (/invalid login/i.test(m)) return "That email and password don't match. New here? Tap Create an account.";
+      if (/already registered/i.test(m)) return "That email already has an account. Tap Sign in instead.";
+      if (/rate limit/i.test(m)) return "Too many tries. Wait a minute and try again.";
+      return m;
+    }
+    if (mode === "signup" && !data.session) {
+      return "Almost there: check your email for a confirmation link, then sign in.";
+    }
+    return "";
   };
   const signOut = () => {
     supabase.auth.signOut();
@@ -1711,7 +1805,7 @@ export default function MealSelector() {
   }
 
   if (!session) {
-    return <Splash onEnter={signInWithGoogle} themeVars={themeVars} />;
+    return <Splash onEnter={signInWithGoogle} onEmail={signInWithEmail} themeVars={themeVars} />;
   }
 
   if (!cloudLoaded) {
