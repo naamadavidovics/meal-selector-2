@@ -1469,6 +1469,12 @@ function Splash({ onEnter, themeVars }) {
         <p className="text-xs text-[color:var(--muted)] mt-4 leading-snug">
           Signing in keeps your meals synced across every device.
         </p>
+        <a
+          href="/privacy.html"
+          className="inline-block text-xs font-bold underline underline-offset-2 text-[color:var(--muted)] mt-3"
+        >
+          Privacy
+        </a>
       </div>
     </div>
   );
@@ -1928,6 +1934,14 @@ export default function MealSelector() {
                 >
                   Sign out
                 </button>
+                <a
+                  href="/privacy.html"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block text-center text-xs font-bold underline underline-offset-2 text-[color:var(--muted)] mt-3"
+                >
+                  Privacy policy
+                </a>
               </div>
 
               {/* Danger zone */}
