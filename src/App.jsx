@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "./supabaseClient";
 import {
   House,
+  Heart,
+  Pencil,
   UtensilsCrossed,
   CalendarDays,
   Shuffle,
@@ -185,7 +187,7 @@ function TagPill({ tag }) {
   );
 }
 
-function MealCard({ meal, onDelete, rotate, stats, onLogCook, units = "metric" }) {
+function MealCard({ meal, onDelete, onEdit, onToggleFav, rotate, units = "metric" }) {
   const primary = meal.tags[0];
   const band = primary ? tagColor(primary).bg : "var(--ink)";
   const proteinDisplay =
@@ -247,33 +249,42 @@ function MealCard({ meal, onDelete, rotate, stats, onLogCook, units = "metric" }
             )}
           </div>
         )}
-        {(onLogCook || onDelete) && (
-          <div
-            className="flex items-center justify-between gap-2 mt-3.5 pt-3"
-            style={{ borderTop: "1.5px dashed var(--line)" }}
-          >
-            <p className="text-[11px] uppercase tracking-wide font-bold text-[color:var(--muted)]">
-              {stats && stats.timesCooked > 0
-                ? `Made ${stats.timesCooked}x · last ${formatShortDate(stats.lastCooked)}`
-                : "Never made yet"}
-            </p>
-            <div className="flex items-center gap-1.5">
-              {onLogCook && (
+        {(onToggleFav || onEdit || onDelete) && (
+          <div className="flex items-center justify-between mt-2 -mb-1.5">
+            {onToggleFav ? (
+              <button
+                onClick={() => onToggleFav(meal.id)}
+                className="w-10 h-10 -ml-2.5 rounded-full flex items-center justify-center transition-transform active:scale-90"
+                aria-label={meal.favorite ? `Remove ${meal.name} from favorites` : `Favorite ${meal.name}`}
+                aria-pressed={!!meal.favorite}
+              >
+                <Heart
+                  size={22}
+                  strokeWidth={2.25}
+                  fill={meal.favorite ? "#FF206E" : "none"}
+                  color={meal.favorite ? "#FF206E" : "var(--muted)"}
+                />
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center -mr-2.5">
+              {onEdit && (
                 <button
-                  onClick={() => onLogCook(meal.id)}
-                  className="flex items-center gap-1 text-[11px] uppercase tracking-wide font-bold px-3 py-1.5 rounded-full active:translate-y-px"
-                  style={{ backgroundColor: "#06A77D", color: "#fff", border: `1.5px solid var(--ink)` }}
+                  onClick={() => onEdit(meal.id)}
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-[color:var(--muted)] hover:text-[color:var(--ink)] transition-colors"
+                  aria-label={`Edit ${meal.name}`}
                 >
-                  <Check size={12} /> Made this
+                  <Pencil size={17} />
                 </button>
               )}
               {onDelete && (
                 <button
                   onClick={() => onDelete(meal.id)}
-                  className="w-8 h-8 -mr-1.5 rounded-full flex items-center justify-center text-[color:var(--muted)] hover:text-[#FF5A5F] transition-colors"
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-[color:var(--muted)] hover:text-[#FF5A5F] transition-colors"
                   aria-label={`Delete ${meal.name}`}
                 >
-                  <Trash2 size={16} />
+                  <Trash2 size={17} />
                 </button>
               )}
             </div>
@@ -324,13 +335,16 @@ function LoadingScreen({ text, themeVars }) {
   );
 }
 
-function AddMealForm({ onAdd, onClose, units = "metric" }) {
-  const [name, setName] = useState("");
-  const [ingredientsText, setIngredientsText] = useState("");
-  const [tags, setTags] = useState([]);
-  const [calories, setCalories] = useState("");
-  const [protein, setProtein] = useState("");
-  const [photo, setPhoto] = useState(null);
+function AddMealForm({ onAdd, onSave, initial, onClose, units = "metric" }) {
+  const editing = !!initial;
+  const [name, setName] = useState(initial?.name || "");
+  const [ingredientsText, setIngredientsText] = useState(initial ? initial.ingredients.join(", ") : "");
+  const [tags, setTags] = useState(initial?.tags || []);
+  const [calories, setCalories] = useState(initial?.calories ?? "");
+  const [protein, setProtein] = useState(
+    initial?.protein != null ? (units === "imperial" ? gToOz(initial.protein) : initial.protein) : ""
+  );
+  const [photo, setPhoto] = useState(initial?.photo || null);
   const [photoLoading, setPhotoLoading] = useState(false);
 
   const toggleTag = (t) =>
@@ -360,15 +374,20 @@ function AddMealForm({ onAdd, onClose, units = "metric" }) {
         ? ozToG(Number(protein))
         : Number(protein)
       : null;
-    onAdd({
-      id: uid(),
+    const fields = {
       name: name.trim(),
       ingredients: ingredientsText.split(",").map((i) => i.trim()).filter(Boolean),
       tags,
       calories: calories ? Number(calories) : null,
       protein: proteinGrams,
       photo,
-    });
+    };
+    if (editing) {
+      onSave({ ...initial, ...fields });
+      onClose();
+      return;
+    }
+    onAdd({ id: uid(), ...fields });
     setName("");
     setIngredientsText("");
     setTags([]);
@@ -392,7 +411,7 @@ function AddMealForm({ onAdd, onClose, units = "metric" }) {
       >
         <X size={14} />
       </button>
-      <p className="text-sm uppercase tracking-widest font-bold text-[#FF5A5F] mb-3">New meal</p>
+      <p className="text-sm uppercase tracking-widest font-bold text-[#FF5A5F] mb-3">{editing ? "Edit meal" : "New meal"}</p>
       <div className="space-y-3">
         <div>
           <label className="text-[10px] uppercase tracking-widest text-[color:var(--muted)] font-bold">
@@ -514,14 +533,14 @@ function AddMealForm({ onAdd, onClose, units = "metric" }) {
           className="text-sm uppercase tracking-widest font-bold text-white px-6 py-2.5 rounded-full"
           style={{ backgroundColor: "#FF5A5F", border: `2.5px solid var(--ink)`, ...pop(3), ...display }}
         >
-          Add to index
+          {editing ? "Save changes" : "Add to index"}
         </button>
       </div>
     </form>
   );
 }
 
-function HomeScreen({ meals, plan, setTab, mealStats, onLogCook, weekStart, units }) {
+function HomeScreen({ meals, plan, setTab, onToggleFav, weekStart, units }) {
   const tIdx = todayIndex();
   const accent = SECTION.home.color;
   const days = orderedDays(weekStart);
@@ -632,8 +651,7 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook, weekStart, unit
                 meal={meal}
                 onDelete={null}
                 rotate={i}
-                stats={mealStats[meal.id]}
-                onLogCook={onLogCook}
+                onToggleFav={onToggleFav}
                 units={units}
               />
             ))}
@@ -741,7 +759,115 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook, weekStart, unit
   );
 }
 
+function MealPicker({ meals, assignedIds, dayLabel, onPick, onClose }) {
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const list = useMemo(() => {
+    const n = normalize(q);
+    const f = !n
+      ? meals
+      : meals.filter(
+          (m) =>
+            normalize(m.name).includes(n) ||
+            m.ingredients.some((i) => normalize(i).includes(n)) ||
+            m.tags.some((t) => t.includes(n))
+        );
+    return [...f].sort(
+      (a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0) || a.name.localeCompare(b.name)
+    );
+  }, [meals, q]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center px-4 pt-10 sm:pt-0"
+      style={{ backgroundColor: "rgba(23,23,23,0.55)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full sm:max-w-md rounded-2xl flex flex-col max-h-[70dvh]"
+        style={{ border: "3px solid var(--ink)", backgroundColor: "var(--card-bg)", ...pop(5) }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-4 pt-4 pb-3">
+          <h3 className="text-xl font-extrabold" style={{ ...display, color: "var(--ink)" }}>
+            Add to {dayLabel}
+          </h3>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center"
+            style={{ border: "2px solid var(--ink)", color: "var(--ink)" }}
+            aria-label="Close"
+          >
+            <X size={15} />
+          </button>
+        </div>
+        <div className="px-4 pb-3">
+          <div
+            className="flex items-center gap-2 rounded-full px-3.5 py-2.5"
+            style={{ border: "2px solid var(--ink)", backgroundColor: "var(--page-bg)" }}
+          >
+            <Search size={16} color="var(--muted)" />
+            <input
+              autoFocus
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search meals or ingredients"
+              className="flex-1 min-w-0 bg-transparent text-base focus:outline-none"
+              style={{ color: "var(--ink)" }}
+            />
+            {q && (
+              <button onClick={() => setQ("")} aria-label="Clear search" style={{ color: "var(--muted)" }}>
+                <X size={15} />
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="overflow-y-auto px-2 pb-3" style={{ borderTop: "1.5px dashed var(--line)" }}>
+          {list.length === 0 && (
+            <p className="text-sm text-[color:var(--muted)] text-center py-8">No meals match "{q}".</p>
+          )}
+          {list.map((m) => {
+            const added = assignedIds.includes(m.id);
+            const c = tagColor(m.tags[0]);
+            return (
+              <button
+                key={m.id}
+                disabled={added}
+                onClick={() => onPick(m.id)}
+                className="w-full flex items-center gap-3 text-left px-2.5 py-3 rounded-xl disabled:opacity-50"
+              >
+                <span
+                  className="w-3.5 h-3.5 rounded-full shrink-0"
+                  style={{ backgroundColor: m.tags[0] ? c.bg : "var(--line)", border: "1.5px solid var(--ink)" }}
+                />
+                <span className="flex-1 min-w-0">
+                  <span className="block font-bold leading-tight truncate" style={{ ...display, color: "var(--ink)" }}>
+                    {m.name}
+                  </span>
+                  {m.ingredients.length > 0 && (
+                    <span className="block text-xs text-[color:var(--muted)] truncate mt-0.5">
+                      {m.ingredients.join(", ")}
+                    </span>
+                  )}
+                </span>
+                {m.favorite && <Heart size={14} fill="#FF206E" color="#FF206E" className="shrink-0" />}
+                {added && <Check size={16} color="#06A77D" className="shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function WeeklyPlanner({ meals, plan, setPlan, weekStart }) {
+  const [pickerDay, setPickerDay] = useState(null);
   const tIdx = todayIndex();
   const accent = SECTION.plan.color;
   const days = orderedDays(weekStart);
@@ -822,18 +948,13 @@ function WeeklyPlanner({ meals, plan, setPlan, weekStart }) {
                       </span>
                     );
                   })}
-                  <select
-                    value=""
-                    onChange={(e) => assignMeal(idx, e.target.value)}
-                    className="text-xs font-bold bg-transparent border border-dashed border-[color:var(--line)] rounded-full px-2.5 py-1 text-[color:var(--muted)] focus:outline-none cursor-pointer"
+                  <button
+                    onClick={() => setPickerDay(idx)}
+                    className="inline-flex items-center gap-1 text-xs font-bold rounded-full px-3 py-1.5 text-[color:var(--muted)]"
+                    style={{ border: "1.5px dashed var(--muted)" }}
                   >
-                    <option value="">+ add meal</option>
-                    {meals.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                  </select>
+                    <Plus size={12} /> add meal
+                  </button>
                 </div>
               </div>
             );
@@ -841,15 +962,18 @@ function WeeklyPlanner({ meals, plan, setPlan, weekStart }) {
         </div>
       )}
 
-      <div
-        className="mt-6 rounded-xl p-3 flex items-center justify-between"
-        style={{ border: `2px dashed var(--line)` }}
-      >
-        <p className="text-xs text-[color:var(--muted)]">
-          Your grocery list now lives on its own page — auto-filled from this plan, plus your
-          essentials.
-        </p>
-      </div>
+      {pickerDay !== null && (
+        <MealPicker
+          meals={meals}
+          assignedIds={plan[pickerDay] || []}
+          dayLabel={FULL_DAYS[pickerDay]}
+          onPick={(id) => {
+            assignMeal(pickerDay, id);
+            setPickerDay(null);
+          }}
+          onClose={() => setPickerDay(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1243,6 +1367,8 @@ export default function MealSelector() {
   const fileInputRef = useRef(null);
   const [tab, setTab] = useState("home");
   const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [favOnly, setFavOnly] = useState(false);
 
   const [surpriseTag, setSurpriseTag] = useState("any");
   const [picked, setPicked] = useState(null);
@@ -1387,19 +1513,6 @@ export default function MealSelector() {
     reader.readAsText(file);
   };
 
-  const logCook = (mealId) =>
-    setCookLog((prev) => [...prev, { id: uid(), mealId, date: todayDateStr() }]);
-
-  const mealStats = useMemo(() => {
-    const stats = {};
-    cookLog.forEach((entry) => {
-      if (!stats[entry.mealId]) stats[entry.mealId] = { timesCooked: 0, lastCooked: entry.date };
-      stats[entry.mealId].timesCooked += 1;
-      if (entry.date > stats[entry.mealId].lastCooked) stats[entry.mealId].lastCooked = entry.date;
-    });
-    return stats;
-  }, [cookLog]);
-
   const resetAllData = () => {
     setMeals([]);
     setPlan({});
@@ -1415,6 +1528,9 @@ export default function MealSelector() {
   };
 
   const addMeal = (meal) => setMeals((prev) => [...prev, meal]);
+  const updateMeal = (meal) => setMeals((prev) => prev.map((m) => (m.id === meal.id ? meal : m)));
+  const toggleFav = (id) =>
+    setMeals((prev) => prev.map((m) => (m.id === id ? { ...m, favorite: !m.favorite } : m)));
   const deleteMeal = (id) => {
     setMeals((prev) => prev.filter((m) => m.id !== id));
     setPlan((prev) => {
@@ -1791,8 +1907,7 @@ export default function MealSelector() {
             meals={meals}
             plan={plan}
             setTab={setTab}
-            mealStats={mealStats}
-            onLogCook={logCook}
+            onToggleFav={toggleFav}
             weekStart={prefs.weekStart}
             units={prefs.units}
           />
@@ -1800,16 +1915,36 @@ export default function MealSelector() {
 
         {tab === "index" && (
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm text-[color:var(--muted)]">
-                {meals.length} meal{meals.length === 1 ? "" : "s"} on file
-              </p>
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex gap-2">
+                {[
+                  { id: false, label: `All ${meals.length}` },
+                  { id: true, label: `Favorites ${meals.filter((m) => m.favorite).length}` },
+                ].map((opt) => (
+                  <button
+                    key={String(opt.id)}
+                    onClick={() => setFavOnly(opt.id)}
+                    className="flex items-center gap-1 text-[11px] uppercase tracking-wide font-bold px-3 py-2 rounded-full"
+                    style={
+                      favOnly === opt.id
+                        ? { backgroundColor: opt.id ? "#FF206E" : "var(--ink)", color: opt.id ? "#fff" : "var(--page-bg)", border: "2px solid var(--ink)" }
+                        : { backgroundColor: "transparent", color: "var(--muted)", border: "2px solid var(--line)" }
+                    }
+                  >
+                    {opt.id && <Heart size={11} fill={favOnly ? "#fff" : "none"} />}
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
               <button
-                onClick={() => setShowAdd((s) => !s)}
-                className="flex items-center gap-1 text-xs uppercase tracking-widest font-bold text-white px-4 py-2 rounded-full"
+                onClick={() => {
+                  setEditingId(null);
+                  setShowAdd((s) => !s);
+                }}
+                className="flex items-center gap-1 text-xs uppercase tracking-widest font-bold text-white px-4 py-2 rounded-full shrink-0"
                 style={{ backgroundColor: SECTION.index.color, border: `2px solid var(--ink)`, ...pop(3) }}
               >
-                <Plus size={14} /> Add meal
+                <Plus size={14} /> Add
               </button>
             </div>
 
@@ -1831,18 +1966,42 @@ export default function MealSelector() {
               </div>
             )}
 
+            {favOnly && meals.length > 0 && !meals.some((m) => m.favorite) && (
+              <p className="text-sm text-[color:var(--muted)] text-center py-12">
+                No favorites yet. Tap the heart on a meal to add it here.
+              </p>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-3">
-              {meals.map((m, i) => (
-                <MealCard
-                  key={m.id}
-                  meal={m}
-                  onDelete={deleteMeal}
-                  rotate={i}
-                  stats={mealStats[m.id]}
-                  onLogCook={logCook}
-                  units={prefs.units}
-                />
-              ))}
+              {meals.map((m, i) => {
+                if (favOnly && !m.favorite) return null;
+                if (m.id === editingId) {
+                  return (
+                    <div key={m.id} className="sm:col-span-2">
+                      <AddMealForm
+                        initial={m}
+                        onSave={updateMeal}
+                        onClose={() => setEditingId(null)}
+                        units={prefs.units}
+                      />
+                    </div>
+                  );
+                }
+                return (
+                  <MealCard
+                    key={m.id}
+                    meal={m}
+                    onDelete={deleteMeal}
+                    onEdit={(id) => {
+                      setShowAdd(false);
+                      setEditingId(id);
+                    }}
+                    onToggleFav={toggleFav}
+                    rotate={i}
+                    units={prefs.units}
+                  />
+                );
+              })}
             </div>
           </div>
         )}
