@@ -34,7 +34,7 @@ const ESSENTIALS_KEY = "meal-index:essentials";
 const EXTRAS_KEY = "meal-index:groceryExtras";
 const PREFS_KEY = "meal-index:preferences";
 
-const DEFAULT_PREFS = { weekStart: "mon", theme: "auto", units: "metric" };
+const DEFAULT_PREFS = { weekStart: "mon", theme: "auto", units: "metric", tourSeen: false };
 
 const THEME_VARS = {
   light: { "--page-bg": "#FDF0DC", "--card-bg": "#FFFFFF", "--ink": "#171717", "--muted": "#6b645e", "--line": "#d9d4cc" },
@@ -1250,6 +1250,130 @@ function GroceriesScreen({
   );
 }
 
+const TOUR_STEPS = [
+  {
+    icon: ChefHat,
+    color: "#FFD23F",
+    ink: INK,
+    title: "Welcome to Meal Index",
+    body: "Your meals, your week and your grocery list in one place. Here's a 30 second tour.",
+  },
+  {
+    icon: UtensilsCrossed,
+    color: "#FF5A5F",
+    ink: "#FFFFFF",
+    title: "Start with your meals",
+    body: "Open Meals and tap Add. Give it a name, list the ingredients with commas between them, and pick a few tags. Tap the heart on your go-tos to find them fast.",
+  },
+  {
+    icon: CalendarDays,
+    color: "#06A77D",
+    ink: "#FFFFFF",
+    title: "Plan your week",
+    body: "On Plan, tap \"add meal\" under any day and search for what you want. Home always shows what's on the menu today.",
+  },
+  {
+    icon: ShoppingBasket,
+    color: "#FF206E",
+    ink: "#FFFFFF",
+    title: "Groceries write themselves",
+    body: "Your plan fills the list for you. Planning the same meal twice won't double the ingredients. Add essentials like eggs and it reminds you when it's time to restock.",
+  },
+  {
+    icon: Shuffle,
+    color: "#8338EC",
+    ink: "#FFFFFF",
+    title: "Stuck on what to make?",
+    body: "Surprise pulls a random meal from your list. Pantry takes what's in your kitchen and finds meals you can make. Tip: add this site to your home screen to use it like an app.",
+  },
+];
+
+function Tour({ onClose }) {
+  const [step, setStep] = useState(0);
+  const last = step === TOUR_STEPS.length - 1;
+  const t = TOUR_STEPS[step];
+  const Icon = t.icon;
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center px-5"
+      style={{ backgroundColor: "rgba(23,23,23,0.6)" }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="App tour"
+    >
+      <div
+        className="w-full max-w-sm rounded-3xl px-6 pt-8 pb-6 text-center"
+        style={{ border: "3px solid var(--ink)", backgroundColor: "var(--card-bg)", ...pop(6) }}
+      >
+        <div
+          key={step}
+          className="w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-5"
+          style={{
+            backgroundColor: t.color,
+            color: t.ink,
+            border: "3px solid var(--ink)",
+            transform: "rotate(-6deg)",
+            animation: "bounceIn 0.35s ease-out",
+            ...pop(4),
+          }}
+        >
+          <Icon size={42} />
+        </div>
+        <h3 className="text-2xl font-extrabold leading-tight" style={{ ...display, color: "var(--ink)" }}>
+          {t.title}
+        </h3>
+        <p className="text-[15px] leading-snug text-[color:var(--muted)] mt-2 min-h-[96px]">{t.body}</p>
+
+        <div className="flex justify-center gap-2 my-4">
+          {TOUR_STEPS.map((_, i) => (
+            <span
+              key={i}
+              className="h-2.5 rounded-full transition-all"
+              style={{
+                width: i === step ? 24 : 10,
+                backgroundColor: i === step ? t.color : "var(--line)",
+                border: "1.5px solid var(--ink)",
+              }}
+            />
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3">
+          {step > 0 ? (
+            <button
+              onClick={() => setStep((n) => n - 1)}
+              className="flex-1 text-sm uppercase tracking-widest font-bold py-3 rounded-full"
+              style={{ border: "2.5px solid var(--ink)", color: "var(--ink)", ...display }}
+            >
+              Back
+            </button>
+          ) : (
+            <button
+              onClick={onClose}
+              className="flex-1 text-sm uppercase tracking-widest font-bold py-3 text-[color:var(--muted)]"
+              style={display}
+            >
+              Skip
+            </button>
+          )}
+          <button
+            onClick={() => (last ? onClose() : setStep((n) => n + 1))}
+            className="flex-[1.4] text-sm uppercase tracking-widest font-bold py-3 rounded-full active:translate-y-px"
+            style={{ backgroundColor: t.color, color: t.ink, border: "2.5px solid var(--ink)", ...pop(3), ...display }}
+          >
+            {last ? "Let's cook" : "Next"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Splash({ onEnter, themeVars }) {
   const decorations = [
     { tag: "breakfast", rotate: "-10deg", pos: "top-8 left-6 lg:left-24" },
@@ -1369,6 +1493,7 @@ export default function MealSelector() {
   const [showAdd, setShowAdd] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [favOnly, setFavOnly] = useState(false);
+  const [showTour, setShowTour] = useState(false);
 
   const [surpriseTag, setSurpriseTag] = useState("any");
   const [picked, setPicked] = useState(null);
@@ -1432,7 +1557,10 @@ export default function MealSelector() {
         setCookLog(d.cookLog || []);
         setEssentials(d.essentials || []);
         setExtras(d.extras || []);
-        setPrefs({ ...DEFAULT_PREFS, ...(d.prefs || {}) });
+        const loaded = { ...DEFAULT_PREFS, ...(d.prefs || {}) };
+        // People who were here before the tour existed don't need it.
+        if (d.prefs?.tourSeen === undefined && (d.meals || []).length > 0) loaded.tourSeen = true;
+        setPrefs(loaded);
       }
       setCloudLoaded(true);
     })();
@@ -1620,6 +1748,15 @@ export default function MealSelector() {
           </button>
         </div>
 
+        {(showTour || !prefs.tourSeen) && (
+          <Tour
+            onClose={() => {
+              setShowTour(false);
+              setPrefs((p) => ({ ...p, tourSeen: true }));
+            }}
+          />
+        )}
+
         {showSettings && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -1774,6 +1911,16 @@ export default function MealSelector() {
                 <p className="text-xs text-[color:var(--muted)] mb-3 truncate">
                   Signed in as {session?.user?.email}
                 </p>
+                <button
+                  onClick={() => {
+                    setShowSettings(false);
+                    setShowTour(true);
+                  }}
+                  className="w-full text-xs uppercase tracking-widest font-bold py-2 rounded-full mb-2"
+                  style={{ backgroundColor: "transparent", color: "var(--ink)", border: `2px solid var(--ink)` }}
+                >
+                  Replay tour
+                </button>
                 <button
                   onClick={signOut}
                   className="w-full text-xs uppercase tracking-widest font-bold py-2 rounded-full"
