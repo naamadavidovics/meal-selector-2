@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { supabase } from "./supabaseClient";
 import {
   Shuffle,
   Plus,
@@ -14,6 +15,7 @@ import {
   ChefHat,
   Image as ImageIcon,
   AlertCircle,
+  Settings,
 } from "lucide-react";
 
 const TAG_OPTIONS = ["breakfast", "lunch", "dinner", "snack", "high-protein", "quick", "batch"];
@@ -25,23 +27,28 @@ const CHECKED_KEY = "meal-index:groceryChecked";
 const LOG_KEY = "meal-index:cookLog";
 const ESSENTIALS_KEY = "meal-index:essentials";
 const EXTRAS_KEY = "meal-index:groceryExtras";
+const PREFS_KEY = "meal-index:preferences";
 
-// --- Local storage helpers (swap-in replacement for Claude's window.storage) ---
-function loadLocal(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch (err) {
-    console.error("Failed to load", key, err);
-    return fallback;
-  }
+const DEFAULT_PREFS = { weekStart: "mon", theme: "auto", units: "metric" };
+
+const THEME_VARS = {
+  light: { "--page-bg": "#FDF0DC", "--card-bg": "#FFFFFF", "--ink": "#171717" },
+  dark: { "--page-bg": "#1C1917", "--card-bg": "#292524", "--ink": "#F5F5F4" },
+};
+
+function gToOz(g) {
+  return Math.round(g * 0.035274 * 10) / 10;
 }
-function saveLocal(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (err) {
-    console.error("Failed to save", key, err);
+function ozToG(oz) {
+  return Math.round(oz / 0.035274);
+}
+function orderedDays(weekStart) {
+  // DAYS/data are always Monday-indexed (0=Mon...6=Sun) so stored plans never
+  // change meaning — this only reorders how they're displayed.
+  if (weekStart === "sun") {
+    return [6, 0, 1, 2, 3, 4, 5].map((i) => ({ label: DAYS[i], idx: i }));
   }
+  return DAYS.map((label, i) => ({ label, idx: i }));
 }
 
 const INK = "#171717";
@@ -128,7 +135,7 @@ function tagColor(tag) {
 const display = { fontFamily: "'Baloo 2', system-ui, sans-serif" };
 
 function pop(offset = 4) {
-  return { boxShadow: `${offset}px ${offset}px 0 ${INK}` };
+  return { boxShadow: `${offset}px ${offset}px 0 var(--ink)` };
 }
 
 function Stamp({ tag, rotate = "-6deg", size = "md" }) {
@@ -140,7 +147,7 @@ function Stamp({ tag, rotate = "-6deg", size = "md" }) {
       style={{
         backgroundColor: c.bg,
         color: c.ink,
-        border: `2.5px solid ${INK}`,
+        border: `2.5px solid var(--ink)`,
         transform: `rotate(${rotate})`,
         ...display,
       }}
@@ -155,19 +162,21 @@ function TagPill({ tag }) {
   return (
     <span
       className="inline-block text-[10px] uppercase tracking-wide font-bold px-2 py-0.5 rounded-full"
-      style={{ backgroundColor: c.bg, color: c.ink, border: `1.5px solid ${INK}` }}
+      style={{ backgroundColor: c.bg, color: c.ink, border: `1.5px solid var(--ink)` }}
     >
       {tag}
     </span>
   );
 }
 
-function MealCard({ meal, onDelete, rotate, stats, onLogCook }) {
+function MealCard({ meal, onDelete, rotate, stats, onLogCook, units = "metric" }) {
   const primary = meal.tags[0];
+  const proteinDisplay =
+    meal.protein != null ? (units === "imperial" ? `${gToOz(meal.protein)}oz` : `${meal.protein}g`) : null;
   return (
     <div
-      className="relative bg-white rounded-2xl overflow-hidden"
-      style={{ border: `2.5px solid ${INK}`, ...pop(4) }}
+      className="relative rounded-2xl overflow-hidden"
+      style={{ border: `2.5px solid var(--ink)`, backgroundColor: "var(--card-bg)", ...pop(4) }}
     >
       {primary && (
         <div className="absolute -top-4 -right-3 z-10">
@@ -175,7 +184,7 @@ function MealCard({ meal, onDelete, rotate, stats, onLogCook }) {
         </div>
       )}
       {meal.photo && (
-        <div className="w-full h-32" style={{ borderBottom: `2.5px solid ${INK}` }}>
+        <div className="w-full h-32" style={{ borderBottom: `2.5px solid var(--ink)` }}>
           <img src={meal.photo} alt={meal.name} className="w-full h-full object-cover" />
         </div>
       )}
@@ -189,7 +198,7 @@ function MealCard({ meal, onDelete, rotate, stats, onLogCook }) {
             <Trash2 size={15} />
           </button>
         )}
-        <h3 className="text-xl font-bold pr-10" style={{ ...display, color: INK }}>
+        <h3 className="text-xl font-bold pr-10" style={{ ...display, color: "var(--ink)" }}>
           {meal.name}
         </h3>
         {meal.ingredients.length > 0 && (
@@ -208,7 +217,7 @@ function MealCard({ meal, onDelete, rotate, stats, onLogCook }) {
               ) : null}
               {meal.protein ? (
                 <span className="inline-flex items-center gap-0.5">
-                  <Beef size={10} /> {meal.protein}g
+                  <Beef size={10} /> {proteinDisplay}
                 </span>
               ) : null}
             </span>
@@ -228,7 +237,7 @@ function MealCard({ meal, onDelete, rotate, stats, onLogCook }) {
               <button
                 onClick={() => onLogCook(meal.id)}
                 className="flex items-center gap-1 text-[10px] uppercase tracking-wide font-bold px-2.5 py-1 rounded-full"
-                style={{ backgroundColor: "#06A77D", color: "#fff", border: `1.5px solid ${INK}` }}
+                style={{ backgroundColor: "#06A77D", color: "#fff", border: `1.5px solid var(--ink)` }}
               >
                 <Check size={10} /> Made this
               </button>
@@ -240,7 +249,7 @@ function MealCard({ meal, onDelete, rotate, stats, onLogCook }) {
   );
 }
 
-function AddMealForm({ onAdd, onClose }) {
+function AddMealForm({ onAdd, onClose, units = "metric" }) {
   const [name, setName] = useState("");
   const [ingredientsText, setIngredientsText] = useState("");
   const [tags, setTags] = useState([]);
@@ -269,13 +278,20 @@ function AddMealForm({ onAdd, onClose }) {
   const submit = (e) => {
     e.preventDefault();
     if (!name.trim()) return;
+    // Protein is always stored in grams internally, regardless of which unit
+    // the person typed it in — so switching units later never changes the data.
+    const proteinGrams = protein
+      ? units === "imperial"
+        ? ozToG(Number(protein))
+        : Number(protein)
+      : null;
     onAdd({
       id: uid(),
       name: name.trim(),
       ingredients: ingredientsText.split(",").map((i) => i.trim()).filter(Boolean),
       tags,
       calories: calories ? Number(calories) : null,
-      protein: protein ? Number(protein) : null,
+      protein: proteinGrams,
       photo,
     });
     setName("");
@@ -290,14 +306,14 @@ function AddMealForm({ onAdd, onClose }) {
   return (
     <form
       onSubmit={submit}
-      className="bg-white rounded-2xl p-5 mb-5 relative"
-      style={{ border: `2.5px solid ${INK}`, ...pop(5) }}
+      className="rounded-2xl p-5 mb-5 relative"
+      style={{ border: `2.5px solid var(--ink)`, backgroundColor: "var(--card-bg)", ...pop(5) }}
     >
       <button
         type="button"
         onClick={onClose}
         className="absolute top-4 right-4 w-7 h-7 rounded-full flex items-center justify-center text-stone-500 hover:text-white hover:bg-[#171717] transition-colors"
-        style={{ border: `2px solid ${INK}` }}
+        style={{ border: `2px solid var(--ink)` }}
       >
         <X size={14} />
       </button>
@@ -341,7 +357,7 @@ function AddMealForm({ onAdd, onClose }) {
           </div>
           <div className="flex-1">
             <label className="text-[10px] uppercase tracking-widest text-stone-400 font-bold">
-              Protein g
+              Protein ({units === "imperial" ? "oz" : "g"})
             </label>
             <input
               type="number"
@@ -361,7 +377,7 @@ function AddMealForm({ onAdd, onClose }) {
                 src={photo}
                 alt="Preview"
                 className="w-14 h-14 rounded-lg object-cover"
-                style={{ border: `2px solid ${INK}` }}
+                style={{ border: `2px solid var(--ink)` }}
               />
             ) : (
               <div
@@ -373,7 +389,7 @@ function AddMealForm({ onAdd, onClose }) {
             )}
             <label
               className="text-[10px] uppercase tracking-wide font-bold px-3 py-2 rounded-full cursor-pointer"
-              style={{ backgroundColor: "#fff", color: INK, border: `2px solid ${INK}` }}
+              style={{ backgroundColor: "#fff", color: "var(--ink)", border: `2px solid var(--ink)` }}
             >
               {photoLoading ? "Processing…" : photo ? "Change photo" : "Upload photo"}
               <input type="file" accept="image/*" onChange={handlePhoto} className="hidden" />
@@ -406,7 +422,7 @@ function AddMealForm({ onAdd, onClose }) {
                   style={{
                     backgroundColor: active ? c.bg : "#fff",
                     color: active ? c.ink : "#78716c",
-                    border: `2px solid ${INK}`,
+                    border: `2px solid var(--ink)`,
                     transform: active ? "scale(1.05)" : "scale(1)",
                   }}
                 >
@@ -419,7 +435,7 @@ function AddMealForm({ onAdd, onClose }) {
         <button
           type="submit"
           className="text-sm uppercase tracking-widest font-bold text-white px-6 py-2.5 rounded-full"
-          style={{ backgroundColor: "#FF5A5F", border: `2.5px solid ${INK}`, ...pop(3), ...display }}
+          style={{ backgroundColor: "#FF5A5F", border: `2.5px solid var(--ink)`, ...pop(3), ...display }}
         >
           Add to index
         </button>
@@ -428,9 +444,10 @@ function AddMealForm({ onAdd, onClose }) {
   );
 }
 
-function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
+function HomeScreen({ meals, plan, setTab, mealStats, onLogCook, weekStart, units }) {
   const tIdx = todayIndex();
   const accent = SECTION.home.color;
+  const days = orderedDays(weekStart);
 
   const mealById = useMemo(() => {
     const m = {};
@@ -465,7 +482,7 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
         <p className="text-sm uppercase tracking-widest font-bold" style={{ color: accent }}>
           {greeting()}
         </p>
-        <h2 className="text-3xl font-extrabold" style={{ ...display, color: INK }}>
+        <h2 className="text-3xl font-extrabold" style={{ ...display, color: "var(--ink)" }}>
           {todayLabel}, {dateLabel}
         </h2>
       </div>
@@ -477,8 +494,8 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
         </p>
         {todayMeals.length === 0 ? (
           <div
-            className="bg-white rounded-2xl p-6 text-center"
-            style={{ border: `2.5px dashed #d6d3d1` }}
+            className="rounded-2xl p-6 text-center"
+            style={{ border: `2.5px dashed #d6d3d1`, backgroundColor: "var(--card-bg)" }}
           >
             <p className="text-stone-400 text-sm mb-3">Nothing planned for today yet.</p>
             <div className="flex gap-2 justify-center flex-wrap">
@@ -488,7 +505,7 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
                 style={{
                   backgroundColor: SECTION.surprise.color,
                   color: SECTION.surprise.ink,
-                  border: `2px solid ${INK}`,
+                  border: `2px solid var(--ink)`,
                   ...pop(3),
                 }}
               >
@@ -497,7 +514,7 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
               <button
                 onClick={() => setTab("plan")}
                 className="text-xs uppercase tracking-widest font-bold px-4 py-2 rounded-full"
-                style={{ backgroundColor: "#fff", color: INK, border: `2px solid ${INK}`, ...pop(3) }}
+                style={{ backgroundColor: "#fff", color: "var(--ink)", border: `2px solid var(--ink)`, ...pop(3) }}
               >
                 Plan my week
               </button>
@@ -513,6 +530,7 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
                 rotate={i}
                 stats={mealStats[meal.id]}
                 onLogCook={onLogCook}
+                units={units}
               />
             ))}
           </div>
@@ -525,29 +543,29 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
           This week
         </p>
         <button onClick={() => setTab("plan")} className="w-full flex gap-2 justify-between">
-          {DAYS.map((day, idx) => {
+          {days.map(({ label, idx }) => {
             const count = (plan[idx] || []).length;
             const first = count > 0 ? mealById[plan[idx][0]] : null;
             const dotColor = first ? tagColor(first.tags[0]).bg : "#e7e5e4";
             const isToday = idx === tIdx;
             return (
               <div
-                key={day}
+                key={idx}
                 className="flex-1 flex flex-col items-center gap-1.5 py-2.5 rounded-xl"
                 style={{
                   border: `2px solid ${isToday ? accent : "#e7e5e4"}`,
-                  backgroundColor: isToday ? `${accent}14` : "#fff",
+                  backgroundColor: isToday ? `${accent}14` : "var(--card-bg)",
                 }}
               >
                 <span
                   className="text-[10px] uppercase tracking-wide font-bold"
                   style={{ color: isToday ? accent : "#a8a29e" }}
                 >
-                  {day}
+                  {label}
                 </span>
                 <span
                   className="w-2.5 h-2.5 rounded-full"
-                  style={{ backgroundColor: dotColor, border: count > 0 ? `1.5px solid ${INK}` : "none" }}
+                  style={{ backgroundColor: dotColor, border: count > 0 ? `1.5px solid var(--ink)` : "none" }}
                 />
               </div>
             );
@@ -558,10 +576,10 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
       {/* Quick stats */}
       <div className="flex gap-4 flex-wrap">
         <div
-          className="bg-white rounded-xl px-4 py-3 flex-1 min-w-[140px]"
-          style={{ border: `2px solid ${INK}`, ...pop(3) }}
+          className="rounded-xl px-4 py-3 flex-1 min-w-[140px]"
+          style={{ border: `2px solid var(--ink)`, backgroundColor: "var(--card-bg)", ...pop(3) }}
         >
-          <p className="text-2xl font-extrabold" style={{ ...display, color: INK }}>
+          <p className="text-2xl font-extrabold" style={{ ...display, color: "var(--ink)" }}>
             {meals.length}
           </p>
           <p className="text-[10px] uppercase tracking-widest font-bold text-stone-400">
@@ -569,10 +587,10 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
           </p>
         </div>
         <div
-          className="bg-white rounded-xl px-4 py-3 flex-1 min-w-[140px]"
-          style={{ border: `2px solid ${INK}`, ...pop(3) }}
+          className="rounded-xl px-4 py-3 flex-1 min-w-[140px]"
+          style={{ border: `2px solid var(--ink)`, backgroundColor: "var(--card-bg)", ...pop(3) }}
         >
-          <p className="text-2xl font-extrabold" style={{ ...display, color: INK }}>
+          <p className="text-2xl font-extrabold" style={{ ...display, color: "var(--ink)" }}>
             {plannedCount}
           </p>
           <p className="text-[10px] uppercase tracking-widest font-bold text-stone-400">
@@ -594,7 +612,7 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
               <span
                 key={name}
                 className="inline-flex items-center gap-1.5 text-xs font-bold capitalize px-3 py-1.5 rounded-full"
-                style={{ backgroundColor: "#fff", color: INK, border: `2px solid ${INK}` }}
+                style={{ backgroundColor: "#fff", color: "var(--ink)", border: `2px solid var(--ink)` }}
               >
                 {name}
                 <span
@@ -612,9 +630,10 @@ function HomeScreen({ meals, plan, setTab, mealStats, onLogCook }) {
   );
 }
 
-function WeeklyPlanner({ meals, plan, setPlan }) {
+function WeeklyPlanner({ meals, plan, setPlan, weekStart }) {
   const tIdx = todayIndex();
   const accent = SECTION.plan.color;
+  const days = orderedDays(weekStart);
 
   const assignMeal = (dayIdx, mealId) => {
     if (!mealId) return;
@@ -656,23 +675,23 @@ function WeeklyPlanner({ meals, plan, setPlan }) {
         </p>
       ) : (
         <div className="space-y-2">
-          {DAYS.map((day, idx) => {
+          {days.map(({ label, idx }) => {
             const assigned = plan[idx] || [];
             const isToday = idx === tIdx;
             return (
               <div
-                key={day}
+                key={idx}
                 className="flex items-center gap-3 flex-wrap p-2.5 rounded-xl"
                 style={{
                   border: `2px solid ${isToday ? accent : "#e7e5e4"}`,
-                  backgroundColor: isToday ? `${accent}1A` : "#fff",
+                  backgroundColor: isToday ? `${accent}1A` : "var(--card-bg)",
                 }}
               >
                 <span
                   className="text-xs uppercase tracking-widest font-bold w-10 shrink-0"
                   style={{ color: isToday ? accent : "#a8a29e", ...display }}
                 >
-                  {day}
+                  {label}
                 </span>
                 <div className="flex flex-wrap gap-1.5 flex-1">
                   {assigned.map((id) => {
@@ -683,7 +702,7 @@ function WeeklyPlanner({ meals, plan, setPlan }) {
                       <span
                         key={id}
                         className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full"
-                        style={{ backgroundColor: c.bg, color: c.ink, border: `1.5px solid ${INK}` }}
+                        style={{ backgroundColor: c.bg, color: c.ink, border: `1.5px solid var(--ink)` }}
                       >
                         {meal.name}
                         <button onClick={() => removeMeal(idx, id)} className="hover:opacity-70">
@@ -812,7 +831,7 @@ function GroceriesScreen({
     <button
       onClick={onClick}
       className="w-5 h-5 shrink-0 rounded-md flex items-center justify-center transition-colors"
-      style={{ border: `2px solid ${INK}`, backgroundColor: isChecked ? accent : "#fff" }}
+      style={{ border: `2px solid var(--ink)`, backgroundColor: isChecked ? accent : "#fff" }}
     >
       {isChecked && <Check size={13} strokeWidth={3} className="text-white" />}
     </button>
@@ -824,7 +843,7 @@ function GroceriesScreen({
       <div className="mb-8">
         <h3
           className="flex items-center gap-1.5 text-sm uppercase tracking-widest font-bold mb-1"
-          style={{ color: INK, ...display }}
+          style={{ color: "var(--ink)", ...display }}
         >
           <ShoppingBasket size={16} /> From your meal plan
         </h3>
@@ -870,7 +889,7 @@ function GroceriesScreen({
       <div className="mb-8 pt-6" style={{ borderTop: `2px dashed #e7e5e4` }}>
         <h3
           className="flex items-center gap-1.5 text-sm uppercase tracking-widest font-bold mb-1"
-          style={{ color: INK, ...display }}
+          style={{ color: "var(--ink)", ...display }}
         >
           <AlertCircle size={16} /> Time to restock
         </h3>
@@ -925,7 +944,7 @@ function GroceriesScreen({
           <button
             type="submit"
             className="text-xs uppercase tracking-widest font-bold px-3 py-1.5 rounded-full"
-            style={{ backgroundColor: accent, color: "#fff", border: `2px solid ${INK}` }}
+            style={{ backgroundColor: accent, color: "#fff", border: `2px solid var(--ink)` }}
           >
             <Plus size={13} />
           </button>
@@ -936,7 +955,7 @@ function GroceriesScreen({
       <div className="pt-6" style={{ borderTop: `2px dashed #e7e5e4` }}>
         <h3
           className="flex items-center gap-1.5 text-sm uppercase tracking-widest font-bold mb-1"
-          style={{ color: INK, ...display }}
+          style={{ color: "var(--ink)", ...display }}
         >
           <Plus size={16} /> Add your own
         </h3>
@@ -986,7 +1005,7 @@ function GroceriesScreen({
           <button
             type="submit"
             className="text-xs uppercase tracking-widest font-bold px-3 py-1.5 rounded-full"
-            style={{ backgroundColor: accent, color: "#fff", border: `2px solid ${INK}` }}
+            style={{ backgroundColor: accent, color: "#fff", border: `2px solid var(--ink)` }}
           >
             <Plus size={13} />
           </button>
@@ -996,7 +1015,7 @@ function GroceriesScreen({
   );
 }
 
-function Splash({ onEnter }) {
+function Splash({ onEnter, themeVars }) {
   const decorations = [
     { tag: "breakfast", rotate: "-10deg", pos: "top-6 left-4 sm:left-10" },
     { tag: "dinner", rotate: "8deg", pos: "top-10 right-4 sm:right-12" },
@@ -1004,7 +1023,10 @@ function Splash({ onEnter }) {
     { tag: "snack", rotate: "7deg", pos: "bottom-10 right-8 sm:right-20" },
   ];
   return (
-    <div className="w-full min-h-[700px] bg-[#FDF0DC] flex items-center justify-center p-6 relative overflow-hidden">
+    <div
+      className="w-full min-h-[700px] flex items-center justify-center p-6 relative overflow-hidden"
+      style={{ backgroundColor: "var(--page-bg)", ...themeVars }}
+    >
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&display=swap');
         @keyframes floatY { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
@@ -1019,11 +1041,11 @@ function Splash({ onEnter }) {
       <div className="text-center max-w-md relative z-10">
         <div
           className="w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6"
-          style={{ backgroundColor: "#FFD23F", border: `3px solid ${INK}`, transform: "rotate(-6deg)", ...pop(5) }}
+          style={{ backgroundColor: "#FFD23F", border: `3px solid var(--ink)`, transform: "rotate(-6deg)", ...pop(5) }}
         >
           <ChefHat size={44} color={INK} />
         </div>
-        <h1 className="text-5xl sm:text-6xl font-extrabold leading-none" style={{ ...display, color: INK }}>
+        <h1 className="text-5xl sm:text-6xl font-extrabold leading-none" style={{ ...display, color: "var(--ink)" }}>
           Meal Index
         </h1>
         <p className="text-sm uppercase tracking-[0.25em] font-bold text-stone-400 mt-4">
@@ -1031,25 +1053,37 @@ function Splash({ onEnter }) {
         </p>
         <button
           onClick={onEnter}
-          className="mt-8 text-base uppercase tracking-widest font-bold text-white px-8 py-4 rounded-full transition-transform hover:scale-105"
-          style={{ backgroundColor: "#FF5A5F", border: `3px solid ${INK}`, ...pop(5), ...display }}
+          className="mt-8 flex items-center gap-3 mx-auto text-base uppercase tracking-widest font-bold text-white px-8 py-4 rounded-full transition-transform hover:scale-105"
+          style={{ backgroundColor: "#FF5A5F", border: `3px solid var(--ink)`, ...pop(5), ...display }}
         >
-          Enter your kitchen
+          <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+            <path fill="#FFF" d="M43.6 20.5H42V20.4H24v7.2h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.1-5.1C33.5 6.1 29 4.4 24 4.4 13.2 4.4 4.4 13.2 4.4 24S13.2 43.6 24 43.6 43.6 34.8 43.6 24c0-1.2-.1-2.4-.4-3.5z" />
+          </svg>
+          Sign in with Google
         </button>
+        <p className="text-xs text-stone-400 mt-4">
+          Signing in keeps your meals synced across every device.
+        </p>
       </div>
     </div>
   );
 }
 
 export default function MealSelector() {
-  const [entered, setEntered] = useState(false);
-  const [meals, setMeals] = useState(() => loadLocal(MEALS_KEY, []));
-  const [plan, setPlan] = useState(() => loadLocal(PLAN_KEY, {}));
-  const [checked, setChecked] = useState(() => loadLocal(CHECKED_KEY, {}));
-  const [cookLog, setCookLog] = useState(() => loadLocal(LOG_KEY, []));
-  const [essentials, setEssentials] = useState(() => loadLocal(ESSENTIALS_KEY, []));
-  const [extras, setExtras] = useState(() => loadLocal(EXTRAS_KEY, []));
-  const [loaded, setLoaded] = useState(false);
+  const [session, setSession] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [cloudLoaded, setCloudLoaded] = useState(false);
+
+  const [meals, setMeals] = useState([]);
+  const [plan, setPlan] = useState({});
+  const [checked, setChecked] = useState({});
+  const [cookLog, setCookLog] = useState([]);
+  const [essentials, setEssentials] = useState([]);
+  const [extras, setExtras] = useState([]);
+  const [prefs, setPrefs] = useState(DEFAULT_PREFS);
+  const [showSettings, setShowSettings] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
+  const fileInputRef = useRef(null);
   const [tab, setTab] = useState("home");
   const [showAdd, setShowAdd] = useState(false);
 
@@ -1059,12 +1093,138 @@ export default function MealSelector() {
 
   const [pantryText, setPantryText] = useState("");
 
-  useEffect(() => saveLocal(MEALS_KEY, meals), [meals]);
-  useEffect(() => saveLocal(PLAN_KEY, plan), [plan]);
-  useEffect(() => saveLocal(CHECKED_KEY, checked), [checked]);
-  useEffect(() => saveLocal(LOG_KEY, cookLog), [cookLog]);
-  useEffect(() => saveLocal(ESSENTIALS_KEY, essentials), [essentials]);
-  useEffect(() => saveLocal(EXTRAS_KEY, extras), [extras]);
+  // --- Auth: check for an existing session, then keep it in sync ---
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthChecked(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+      if (!newSession) {
+        // Signed out — clear local state so the next sign-in starts clean.
+        setMeals([]);
+        setPlan({});
+        setChecked({});
+        setCookLog([]);
+        setEssentials([]);
+        setExtras([]);
+        setPrefs(DEFAULT_PREFS);
+        setCloudLoaded(false);
+      }
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const signInWithGoogle = () => {
+       supabase.auth.signInWithOAuth({ provider: "google", options: { redirectTo: window.location.origin } });
+  };
+  const signOut = () => {
+    supabase.auth.signOut();
+    setShowSettings(false);
+  };
+
+  // --- Load this person's data from the cloud once they're signed in ---
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("app_data")
+        .select("data")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error) {
+        console.error("Failed to load cloud data:", error);
+      } else if (data?.data) {
+        const d = data.data;
+        setMeals(d.meals || []);
+        setPlan(d.plan || {});
+        setChecked(d.checked || {});
+        setCookLog(d.cookLog || []);
+        setEssentials(d.essentials || []);
+        setExtras(d.extras || []);
+        setPrefs({ ...DEFAULT_PREFS, ...(d.prefs || {}) });
+      }
+      setCloudLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  // --- Save to the cloud whenever data changes, debounced so we're not
+  // writing on every keystroke. Never fires before the initial load finishes,
+  // so we can't accidentally overwrite real cloud data with blank state. ---
+  useEffect(() => {
+    if (!session || !cloudLoaded) return;
+    const timeout = setTimeout(() => {
+      supabase
+        .from("app_data")
+        .upsert({
+          user_id: session.user.id,
+          data: { meals, plan, checked, cookLog, essentials, extras, prefs },
+          updated_at: new Date().toISOString(),
+        })
+        .then(({ error }) => {
+          if (error) console.error("Failed to save to cloud:", error);
+        });
+    }, 800);
+    return () => clearTimeout(timeout);
+  }, [meals, plan, checked, cookLog, essentials, extras, prefs, session, cloudLoaded]);
+
+  // Resolve "auto" theme against the system preference and keep it live if the
+  // system setting changes while the app is open.
+  const [systemDark, setSystemDark] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    setSystemDark(mq.matches);
+    const handler = (e) => setSystemDark(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  const resolvedTheme = prefs.theme === "auto" ? (systemDark ? "dark" : "light") : prefs.theme;
+  const themeVars = THEME_VARS[resolvedTheme];
+
+  const exportData = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      meals,
+      plan,
+      checked,
+      cookLog,
+      essentials,
+      extras,
+      prefs,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `meal-index-backup-${todayDateStr()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importData = (file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(reader.result);
+        if (data.meals) setMeals(data.meals);
+        if (data.plan) setPlan(data.plan);
+        if (data.checked) setChecked(data.checked);
+        if (data.cookLog) setCookLog(data.cookLog);
+        if (data.essentials) setEssentials(data.essentials);
+        if (data.extras) setExtras(data.extras);
+        if (data.prefs) setPrefs({ ...DEFAULT_PREFS, ...data.prefs });
+      } catch (err) {
+        console.error("Import failed — file may not be a valid backup:", err);
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const logCook = (mealId) =>
     setCookLog((prev) => [...prev, { id: uid(), mealId, date: todayDateStr() }]);
@@ -1078,6 +1238,20 @@ export default function MealSelector() {
     });
     return stats;
   }, [cookLog]);
+
+  const resetAllData = () => {
+    setMeals([]);
+    setPlan({});
+    setChecked({});
+    setCookLog([]);
+    setEssentials([]);
+    setExtras([]);
+    // The debounced save effect above will pick this up and push the cleared
+    // state to the cloud automatically — no separate delete call needed.
+    setConfirmingReset(false);
+    setShowSettings(false);
+    setTab("home");
+  };
 
   const addMeal = (meal) => setMeals((prev) => [...prev, meal]);
   const deleteMeal = (id) => {
@@ -1121,12 +1295,37 @@ export default function MealSelector() {
 
   const TABS = ["home", "index", "plan", "groceries", "surprise", "pantry"];
 
-  if (!entered) {
-    return <Splash onEnter={() => setEntered(true)} />;
+  if (!authChecked) {
+    return (
+      <div
+        className="w-full min-h-[700px] flex items-center justify-center"
+        style={{ backgroundColor: "var(--page-bg)", ...themeVars }}
+      >
+        <p className="text-sm text-stone-400">Loading…</p>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <Splash onEnter={signInWithGoogle} themeVars={themeVars} />;
+  }
+
+  if (!cloudLoaded) {
+    return (
+      <div
+        className="w-full min-h-[700px] flex items-center justify-center"
+        style={{ backgroundColor: "var(--page-bg)", ...themeVars }}
+      >
+        <p className="text-sm text-stone-400">Loading your kitchen…</p>
+      </div>
+    );
   }
 
   return (
-    <div className="w-full min-h-[700px] bg-[#FDF0DC] flex justify-center p-4 sm:p-6">
+    <div
+      className="w-full min-h-[700px] flex justify-center p-4 sm:p-6"
+      style={{ backgroundColor: "var(--page-bg)", ...themeVars }}
+    >
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&display=swap');
         @keyframes bounceIn { 0% { transform: scale(0.9) rotate(-2deg); } 50% { transform: scale(1.04) rotate(1deg); } 100% { transform: scale(1) rotate(0); } }
@@ -1136,19 +1335,232 @@ export default function MealSelector() {
         <div className="flex items-center gap-3 mb-6">
           <div
             className="w-14 h-14 rounded-full flex items-center justify-center shrink-0"
-            style={{ backgroundColor: "#FFD23F", border: `2.5px solid ${INK}`, transform: "rotate(-6deg)" }}
+            style={{ backgroundColor: "#FFD23F", border: `2.5px solid var(--ink)`, transform: "rotate(-6deg)" }}
           >
             <ChefHat size={26} color={INK} />
           </div>
-          <div>
-            <h1 className="text-3xl sm:text-4xl font-extrabold leading-none" style={{ ...display, color: INK }}>
+          <div className="flex-1">
+            <h1 className="text-3xl sm:text-4xl font-extrabold leading-none" style={{ ...display, color: "var(--ink)" }}>
               Meal Index
             </h1>
             <p className="text-xs uppercase tracking-[0.2em] font-bold text-stone-400 mt-1">
               your personal kitchen system
             </p>
           </div>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-stone-400 hover:text-[#171717] transition-colors"
+            style={{ border: `2px solid #e7e5e4` }}
+            aria-label="Settings"
+          >
+            <Settings size={16} />
+          </button>
         </div>
+
+        {showSettings && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ backgroundColor: "rgba(23,23,23,0.5)" }}
+          >
+            <div
+              className="rounded-2xl p-6 max-w-sm w-full max-h-[85vh] overflow-y-auto"
+              style={{ border: `3px solid var(--ink)`, backgroundColor: "var(--card-bg)", ...pop(5) }}
+            >
+              <div className="flex items-center justify-between mb-5">
+                <h3 className="text-xl font-extrabold" style={{ ...display, color: "var(--ink)" }}>
+                  Settings
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowSettings(false);
+                    setConfirmingReset(false);
+                  }}
+                  className="w-7 h-7 rounded-full flex items-center justify-center"
+                  style={{ border: `2px solid var(--ink)`, color: "var(--ink)" }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+
+              {/* Preferences */}
+              <div className="mb-6">
+                <p className="text-[11px] uppercase tracking-widest font-bold text-stone-400 mb-2">
+                  Preferences
+                </p>
+
+                <div className="mb-4">
+                  <p className="text-xs font-bold mb-1.5" style={{ color: "var(--ink)" }}>
+                    Week starts on
+                  </p>
+                  <div className="flex gap-2">
+                    {[
+                      { id: "mon", label: "Monday" },
+                      { id: "sun", label: "Sunday" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setPrefs((p) => ({ ...p, weekStart: opt.id }))}
+                        className="flex-1 text-xs font-bold py-2 rounded-full"
+                        style={
+                          prefs.weekStart === opt.id
+                            ? { backgroundColor: SECTION.home.color, color: "#fff", border: `2px solid var(--ink)` }
+                            : { backgroundColor: "transparent", color: "var(--ink)", border: `2px solid #d6d3d1` }
+                        }
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <p className="text-xs font-bold mb-1.5" style={{ color: "var(--ink)" }}>
+                    Appearance
+                  </p>
+                  <div className="flex gap-2">
+                    {[
+                      { id: "auto", label: "Auto" },
+                      { id: "light", label: "Light" },
+                      { id: "dark", label: "Dark" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setPrefs((p) => ({ ...p, theme: opt.id }))}
+                        className="flex-1 text-xs font-bold py-2 rounded-full"
+                        style={
+                          prefs.theme === opt.id
+                            ? { backgroundColor: SECTION.home.color, color: "#fff", border: `2px solid var(--ink)` }
+                            : { backgroundColor: "transparent", color: "var(--ink)", border: `2px solid #d6d3d1` }
+                        }
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-bold mb-1.5" style={{ color: "var(--ink)" }}>
+                    Units (protein)
+                  </p>
+                  <div className="flex gap-2">
+                    {[
+                      { id: "metric", label: "Grams (g)" },
+                      { id: "imperial", label: "Ounces (oz)" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setPrefs((p) => ({ ...p, units: opt.id }))}
+                        className="flex-1 text-xs font-bold py-2 rounded-full"
+                        style={
+                          prefs.units === opt.id
+                            ? { backgroundColor: SECTION.home.color, color: "#fff", border: `2px solid var(--ink)` }
+                            : { backgroundColor: "transparent", color: "var(--ink)", border: `2px solid #d6d3d1` }
+                        }
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Backup */}
+              <div className="mb-6 pt-5" style={{ borderTop: "2px dashed #e7e5e4" }}>
+                <p className="text-[11px] uppercase tracking-widest font-bold text-stone-400 mb-2">
+                  Backup
+                </p>
+                <p className="text-xs text-stone-400 mb-3">
+                  Your data lives only in this browser. Export a copy to keep it safe or move it
+                  to another device.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={exportData}
+                    className="flex-1 text-xs uppercase tracking-widest font-bold py-2 rounded-full"
+                    style={{ backgroundColor: "#06A77D", color: "#fff", border: `2px solid var(--ink)` }}
+                  >
+                    Export data
+                  </button>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="flex-1 text-xs uppercase tracking-widest font-bold py-2 rounded-full"
+                    style={{ backgroundColor: "transparent", color: "var(--ink)", border: `2px solid var(--ink)` }}
+                  >
+                    Import data
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="application/json"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) importData(file);
+                      e.target.value = "";
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Account */}
+              <div className="mb-6 pt-5" style={{ borderTop: "2px dashed #e7e5e4" }}>
+                <p className="text-[11px] uppercase tracking-widest font-bold text-stone-400 mb-2">
+                  Account
+                </p>
+                <p className="text-xs text-stone-500 mb-3 truncate">
+                  Signed in as {session?.user?.email}
+                </p>
+                <button
+                  onClick={signOut}
+                  className="w-full text-xs uppercase tracking-widest font-bold py-2 rounded-full"
+                  style={{ backgroundColor: "transparent", color: "var(--ink)", border: `2px solid var(--ink)` }}
+                >
+                  Sign out
+                </button>
+              </div>
+
+              {/* Danger zone */}
+              <div className="pt-5" style={{ borderTop: "2px dashed #e7e5e4" }}>
+                <p className="text-[11px] uppercase tracking-widest font-bold text-stone-400 mb-2">
+                  Danger zone
+                </p>
+                {!confirmingReset ? (
+                  <button
+                    onClick={() => setConfirmingReset(true)}
+                    className="w-full text-xs uppercase tracking-widest font-bold py-2 rounded-full"
+                    style={{ backgroundColor: "transparent", color: "#FF5A5F", border: `2px solid #FF5A5F` }}
+                  >
+                    Reset all data
+                  </button>
+                ) : (
+                  <div>
+                    <p className="text-xs text-stone-500 mb-3">
+                      This clears every meal, plan, grocery item, and log on this device. This
+                      can't be undone.
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setConfirmingReset(false)}
+                        className="flex-1 text-xs uppercase tracking-widest font-bold py-2 rounded-full"
+                        style={{ backgroundColor: "transparent", color: "var(--ink)", border: `2px solid var(--ink)` }}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={resetAllData}
+                        className="flex-1 text-xs uppercase tracking-widest font-bold py-2 rounded-full text-white"
+                        style={{ backgroundColor: "#FF5A5F", border: `2px solid var(--ink)` }}
+                      >
+                        Yes, reset
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Section nav */}
         <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
@@ -1162,7 +1574,7 @@ export default function MealSelector() {
                 className="text-xs sm:text-sm uppercase tracking-wide font-bold px-4 py-2 rounded-full whitespace-nowrap transition-all"
                 style={
                   active
-                    ? { backgroundColor: s.color, color: s.ink, border: `2.5px solid ${INK}`, ...pop(3), ...display }
+                    ? { backgroundColor: s.color, color: s.ink, border: `2.5px solid var(--ink)`, ...pop(3), ...display }
                     : { backgroundColor: "#fff", color: "#a8a29e", border: `2px solid #e7e5e4`, ...display }
                 }
               >
@@ -1179,6 +1591,8 @@ export default function MealSelector() {
             setTab={setTab}
             mealStats={mealStats}
             onLogCook={logCook}
+            weekStart={prefs.weekStart}
+            units={prefs.units}
           />
         )}
 
@@ -1191,13 +1605,15 @@ export default function MealSelector() {
               <button
                 onClick={() => setShowAdd((s) => !s)}
                 className="flex items-center gap-1 text-xs uppercase tracking-widest font-bold text-white px-4 py-2 rounded-full"
-                style={{ backgroundColor: SECTION.index.color, border: `2px solid ${INK}`, ...pop(3) }}
+                style={{ backgroundColor: SECTION.index.color, border: `2px solid var(--ink)`, ...pop(3) }}
               >
                 <Plus size={14} /> Add meal
               </button>
             </div>
 
-            {showAdd && <AddMealForm onAdd={addMeal} onClose={() => setShowAdd(false)} />}
+            {showAdd && (
+              <AddMealForm onAdd={addMeal} onClose={() => setShowAdd(false)} units={prefs.units} />
+            )}
 
             {meals.length === 0 && !showAdd && (
               <div className="text-center py-16 text-stone-400 text-sm">
@@ -1214,6 +1630,7 @@ export default function MealSelector() {
                   rotate={i}
                   stats={mealStats[m.id]}
                   onLogCook={logCook}
+                  units={prefs.units}
                 />
               ))}
             </div>
@@ -1221,7 +1638,7 @@ export default function MealSelector() {
         )}
 
         {tab === "plan" && (
-          <WeeklyPlanner meals={meals} plan={plan} setPlan={setPlan} />
+          <WeeklyPlanner meals={meals} plan={plan} setPlan={setPlan} weekStart={prefs.weekStart} />
         )}
 
         {tab === "groceries" && (
@@ -1251,7 +1668,7 @@ export default function MealSelector() {
                     style={{
                       backgroundColor: active ? c.bg : "#fff",
                       color: active ? c.ink : "#78716c",
-                      border: `2px solid ${INK}`,
+                      border: `2px solid var(--ink)`,
                     }}
                   >
                     {t}
@@ -1263,9 +1680,10 @@ export default function MealSelector() {
             <div className="w-full max-w-sm h-48 relative mb-6">
               {picked ? (
                 <div
-                  className="w-full h-full rounded-2xl bg-white flex flex-col items-center justify-center px-5 text-center"
+                  className="w-full h-full rounded-2xl flex flex-col items-center justify-center px-5 text-center"
                   style={{
-                    border: `3px solid ${INK}`,
+                    backgroundColor: "var(--card-bg)",
+                    border: `3px solid var(--ink)`,
                     ...pop(5),
                     animation: spinning ? "none" : "bounceIn 0.35s ease-out",
                   }}
@@ -1273,7 +1691,7 @@ export default function MealSelector() {
                   <div className="absolute -top-5">
                     <Stamp tag={picked.tags[0] || "quick"} rotate="-5deg" />
                   </div>
-                  <p className="text-2xl font-extrabold mt-2" style={{ ...display, color: INK }}>
+                  <p className="text-2xl font-extrabold mt-2" style={{ ...display, color: "var(--ink)" }}>
                     {picked.name}
                   </p>
                   {picked.ingredients.length > 0 && (
@@ -1302,7 +1720,7 @@ export default function MealSelector() {
               style={{
                 backgroundColor: SECTION.surprise.color,
                 color: SECTION.surprise.ink,
-                border: `2.5px solid ${INK}`,
+                border: `2.5px solid var(--ink)`,
                 ...pop(4),
                 ...display,
               }}
@@ -1348,16 +1766,16 @@ export default function MealSelector() {
               {pantryMatches.slice(0, 6).map(({ meal, missing, score }) => (
                 <div
                   key={meal.id}
-                  className="bg-white rounded-2xl p-4 relative"
-                  style={{ border: `2.5px solid ${INK}`, ...pop(3) }}
+                  className="rounded-2xl p-4 relative"
+                  style={{ border: `2.5px solid var(--ink)`, backgroundColor: "var(--card-bg)", ...pop(3) }}
                 >
                   <div className="flex items-center justify-between">
-                    <p className="text-lg font-bold" style={{ ...display, color: INK }}>
+                    <p className="text-lg font-bold" style={{ ...display, color: "var(--ink)" }}>
                       {meal.name}
                     </p>
                     <span
                       className="text-[10px] uppercase tracking-wide font-bold px-2.5 py-1 rounded-full"
-                      style={{ backgroundColor: SECTION.pantry.color, color: "#fff", border: `1.5px solid ${INK}` }}
+                      style={{ backgroundColor: SECTION.pantry.color, color: "#fff", border: `1.5px solid var(--ink)` }}
                     >
                       {Math.round(score * 100)}%
                     </span>
